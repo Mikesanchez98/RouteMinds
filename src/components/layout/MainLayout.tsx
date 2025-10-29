@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect} from 'react';
+import useDataStore from '../../store/dataStore';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Warehouse, Store, Truck, BarChart4, Map, 
@@ -9,8 +10,18 @@ import useAuthStore from '../../store/authStore';
 const MainLayout: React.FC = () => {
   // Obtener funciones y estado del store de autenticación
   const { user, logout } = useAuthStore();
+  //Obtener las funciones fetch del dataStore
+  const { fetchWarehouses, fetchStores, fetchTrucks } = useDataStore();
   const navigate = useNavigate();
   const location = useLocation();
+
+  //useEffect
+  useEffect(() => {
+    // Cargar datos iniciales cuando el layout se monta
+    fetchWarehouses();
+    fetchStores();
+    fetchTrucks();
+  }, [fetchWarehouses, fetchStores, fetchTrucks]); // Dependencias del useEffect
   
   // Estado para controlar la visibilidad del menú en móviles
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
