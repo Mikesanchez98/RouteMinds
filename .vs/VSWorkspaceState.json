@@ -1,0 +1,16 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\src",
+    "\\src\\components",
+    "\\src\\components\\auth",
+    "\\src\\components\\common",
+    "\\src\\components\\layout",
+    "\\src\\components\\management",
+    "\\src\\components\\map",
+    "\\src\\store",
+    "\\src\\types"
+  ],
+  "SelectedNode": "\\src\\components\\auth\\LoginForm.tsx",
+  "PreviewInSolutionExplorer": false
+}
