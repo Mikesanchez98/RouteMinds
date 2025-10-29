@@ -5,6 +5,7 @@ import WarehouseForm from '../../components/management/WarehouseForm';
 import StoreForm from '../../components/management/StoreForm';
 import TruckForm from '../../components/management/TruckForm';
 import useDataStore from '../../store/dataStore';
+import useAuthStore from '../../store/authStore';
 
 type FormType = 'warehouse' | 'store' | 'truck' | null;
 type Tab = 'warehouses' | 'stores' | 'trucks';
@@ -13,6 +14,9 @@ const ManagementPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('warehouses');
   const [activeForm, setActiveForm] = useState<FormType>(null);
   const [editItem, setEditItem] = useState<any>(null);
+
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
   
   const { warehouses, stores, trucks, deleteWarehouse, deleteStore, deleteTruck } = useDataStore();
   
@@ -88,12 +92,14 @@ const ManagementPage: React.FC = () => {
         </div>
         
         <div className="mt-4 md:mt-0">
-          <Button
-            onClick={() => handleAdd(activeTab === 'warehouses' ? 'warehouse' : activeTab === 'stores' ? 'store' : 'truck')}
-            leftIcon={<Plus size={18} />}
-          >
-            Add {activeTab === 'warehouses' ? 'Warehouse' : activeTab === 'stores' ? 'Store' : 'Truck'}
-          </Button>
+          {isAdmin && ( //Renderizado condicional del botón Add solo para administradores
+            <Button
+              onClick={() => handleAdd(activeTab === 'warehouses' ? 'warehouse' : activeTab === 'stores' ? 'store' : 'truck')}
+              leftIcon={<Plus size={18} />}
+            >
+              Add {activeTab === 'warehouses' ? 'Warehouse' : activeTab === 'stores' ? 'Store' : 'Truck'}
+            </Button>
+          )}
         </div>
       </div>
       
@@ -184,18 +190,22 @@ const ManagementPage: React.FC = () => {
                         {warehouse.address}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                        <button
-                          onClick={() => handleEdit('warehouse', warehouse)}
-                          className="text-blue-600 hover:text-blue-900 mr-4"
-                        >
-                          <Edit size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete('warehouses', warehouse.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
+                        {isAdmin && ( //Renderizado condicional de los botones Edit y Delete solo para administradores
+                          <button
+                            onClick={() => handleEdit('warehouse', warehouse)}
+                            className="text-blue-600 hover:text-blue-900 mr-4"
+                          >
+                            <Edit size={18} />
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDelete('warehouses', warehouse.id)}
+                            className="text-red-600 hover:text-red-900"
+                          >
                           <Trash2 size={18} />
                         </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -243,18 +253,22 @@ const ManagementPage: React.FC = () => {
                         }
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                        <button
-                          onClick={() => handleEdit('store', store)}
-                          className="text-blue-600 hover:text-blue-900 mr-4"
-                        >
-                          <Edit size={18} />
-                        </button>
+                        {isAdmin && ( //Renderizado condicional de los botones Edit y Delete solo para administradores
+                          <button
+                            onClick={() => handleEdit('store', store)}
+                            className="text-blue-600 hover:text-blue-900 mr-4"
+                          >
+                            <Edit size={18} />
+                          </button>
+                        )}
+                        {isAdmin && (
                         <button
                           onClick={() => handleDelete('stores', store.id)}
                           className="text-red-600 hover:text-red-900"
                         >
                           <Trash2 size={18} />
                         </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -302,18 +316,22 @@ const ManagementPage: React.FC = () => {
                           {warehouse ? warehouse.name : 'Unknown warehouse'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                          <button
-                            onClick={() => handleEdit('truck', truck)}
-                            className="text-blue-600 hover:text-blue-900 mr-4"
-                          >
-                            <Edit size={18} />
-                          </button>
+                        {isAdmin && ( //Renderizado condicional de los botones Edit y Delete solo para administradores
+                            <button
+                              onClick={() => handleEdit('truck', truck)}
+                              className="text-blue-600 hover:text-blue-900 mr-4"
+                            >
+                              <Edit size={18} />
+                            </button>
+                        )}
+                        {isAdmin && (
                           <button
                             onClick={() => handleDelete('trucks', truck.id)}
                             className="text-red-600 hover:text-red-900"
                           >
                             <Trash2 size={18} />
                           </button>
+                        )}
                         </td>
                       </tr>
                     );
