@@ -1,11 +1,15 @@
 import { create } from 'zustand';
 import { Warehouse, Store, Truck, Route } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface DataState {
   warehouses: Warehouse[];
   stores: Store[];
   trucks: Truck[];
   routes: Route[];
+
+  isLoading?: boolean;
+  error?: string | null;
   
   // Warehouses
   addWarehouse: (warehouse: Omit<Warehouse, 'id'>) => void;
@@ -32,7 +36,7 @@ interface DataState {
 }
 
 // Sample data for initial development
-const sampleWarehouses: Warehouse[] = [
+/*const sampleWarehouses: Warehouse[] = [
   {
     id: 'w1',
     name: 'Central Warehouse',
@@ -47,9 +51,10 @@ const sampleWarehouses: Warehouse[] = [
     capacity: 800,
     address: '456 Market St, San Francisco, CA'
   }
-];
+];*/
 
-const sampleStores: Store[] = [
+//Sample data for initial development
+/*const sampleStores: Store[] = [
   {
     id: 's1',
     name: 'Downtown Store',
@@ -74,9 +79,10 @@ const sampleStores: Store[] = [
     address: '123 Market St, San Francisco, CA',
     timeWindow: { start: '10:00', end: '19:00' }
   }
-];
+];*/
 
-const sampleTrucks: Truck[] = [
+// Sample data for initial development
+/*const sampleTrucks: Truck[] = [
   {
     id: 't1',
     name: 'Truck 001',
@@ -98,87 +104,412 @@ const sampleTrucks: Truck[] = [
     speed: 65,
     warehouseId: 'w2'
   }
-];
+];*/
 
 const useDataStore = create<DataState>((set, get) => ({
-  warehouses: sampleWarehouses,
-  stores: sampleStores,
-  trucks: sampleTrucks,
+  warehouses: [],
+  stores: [],
+  trucks: [],
   routes: [],
   
-  // Warehouses
-  addWarehouse: (warehouse) => {
-    const newWarehouse = {
-      ...warehouse,
-      id: Math.random().toString(36).substring(2, 9)
+  fetchWarehouses: async () => {
+    set({ isLoading: true }); //Estado isLoading añadido al store para indicar que se está cargando
+    try{
+      const { data, error } = await supabase.from('warehouses').select('*');
+      if (error) throw error;
+      set({ warehouses: data || [], isLoading: false });
+    } catch (error) {
+      console.error('Error fetching warehouses:', error);
+      set({ error: 'Failed to load warehouses', isLoading: false });
+    }
+  },
+
+  fetchStores: async () => {
+    set({ isLoading: true });
+    try {
+      const { data, error } = await supabase.from('stores').select('*');
+      if (error) throw error;
+      //Supabase save 'time' as string HH:MM:SS, adjust only if necessary
+      const formattedData = data?.map(store => ({
+        ...store,
+        timeWindow: store.start_time && store.end_time
+          ? { start: store.start_time.substring(onabort, 5), end: store.end_time.substring(0,5) }
+          :undefined,
+        start_time: undefined, // remove original fields
+        end_time: undefined,   
+      })) || [];
+      set({ stores:formattedData, isLoading: false });
+    } catch (error) {
+      console.error('Error fetching stores:', error);
+      set({ error: 'Failed to load stores', isLoading: false });
+    }
+  },
+
+  fetchTrucks: async () => {
+  set({ isLoading: true });
+  try {
+    // Usamos 'select' con referencia para obtener el nombre del almacén también
+    const { data, error } = await supabase
+      .from('trucks')
+      .select(`
+        *,
+        warehouse:warehouses ( name )
+      `); // Esto asume que llamaste 'warehouse' a la relación FK
+
+    if (error) throw error;
+
+    // Formateamos para que coincida con tu tipo Truck (que espera warehouseId)
+    // Y añadimos el nombre del almacén si quieres mostrarlo fácilmente
+    const formattedData = data?.map(truck => ({
+        ...truck,
+        warehouseName: truck.warehouse?.name || 'Unknown', // Nombre extra
+        warehouse: undefined, // Quitamos el objeto anidado
+    })) || [];
+
+    set({ trucks: formattedData, isLoading: false });
+  } catch (error) {
+    console.error('Error fetching trucks:', error);
+    set({ error: 'Failed to load trucks', isLoading: false });
+  }
+},
+
+//INICIO DE LAS OPERACIONES CRUD
+
+  // ALMACENES
+  //Añadir almacen
+  addWarehouse: async (warehouseInput) => {
+    //Preparar datos para supabase
+    const dbData = {
+      name: warehouseInput.name,
+      lat: warehouseInput.location.lat,
+      lng: warehouseInput.location.lng,
+      capacity: warehouseInput.capacity,
+      address: warehouseInput.address
     };
-    set((state) => ({
-      warehouses: [...state.warehouses, newWarehouse]
-    }));
+
+    set({ isLoading: true, error: null});
+    try {
+      //Insertamos en supabase y pedimos que devuelva el registro generado
+      const { data, error } = await supabase
+        .from('warehouses')
+        .insert(dbData)
+        .select() //Pide que devuelva lo insertado
+        .single(); //Esperamos solo un resultado
+
+      if (error) throw error;
+
+      //Formateamos la espuesta para que coincida con nuestro tipo Warehouse
+      const newWarehouse: Warehouse = {
+        id: data.id,
+        name: data.name,
+        location: { lat: data.lat, lng: data.lng },
+        capacity: data.capacity,
+        address: data.address
+      };
+
+      //Actualizamos el estado local añadiendo el nuevo almacen
+      set((state) => ({
+        warehouses: [...state.warehouses, newWarehouse],
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Error adding warehouse:', error);
+      set({ error: 'Failed to add warehouse', isLoading: false });
+    }
   },
   
-  updateWarehouse: (id, data) => {
-    set((state) => ({
-      warehouses: state.warehouses.map((warehouse) => 
-        warehouse.id === id ? { ...warehouse, ...data } : warehouse
-      )
-    }));
-  },
-  
-  deleteWarehouse: (id) => {
-    set((state) => ({
-      warehouses: state.warehouses.filter((warehouse) => warehouse.id !== id)
-    }));
-  },
-  
-  // Stores
-  addStore: (store) => {
-    const newStore = {
-      ...store,
-      id: Math.random().toString(36).substring(2, 9)
+  //Actualizar almacen
+  updateWarehouse: async (id, warehouseInput) => {
+    //Preparamos datos (solo los que se podrían actualizar)
+    const dbData = {
+      name: warehouseInput.name,
+      lat: warehouseInput.location?.lat,
+      lng: warehouseInput.location?.lng,
+      capacity: warehouseInput.capacity,
+      address: warehouseInput.address,
     };
-    set((state) => ({
-      stores: [...state.stores, newStore]
-    }));
+
+    //Filtramos campos undefined para que supabase no los actualice a null
+    Object.keys(dbData).forEach(key => dbData[key] === undefined && delete dbData[key]);
+
+    set({ isLoading: true, error: null});
+    try {
+      const {data, error} = await supabase
+        .from('warehouses')
+        .update(dbData)
+        .eq('id', id) //Muy importante para indicar qué registro actualizar
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const updatedWarehouse: Warehouse = {
+        id: data.id,
+        name: data.name,
+        location: { lat: data.lat, lng: data.lng },
+        capacity: data.capacity,
+        address: data.address
+      };
+
+      //Actualizamos el estado local remplazando el almacen modificado
+      set((state) => ({
+        warehouses: state.warehouses.map((w) =>
+          w.id === id ? updatedWarehouse : w
+      ),
+      isLoading: false,
+      }))
+    } catch (error) {
+      console.error('Error updating warehouse:', error);
+      set({ error: 'Failed to update warehouse', isLoading: false });
+    } 
   },
   
-  updateStore: (id, data) => {
+  //Eliminar almacen
+  deleteWarehouse: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      const { error} = await supabase
+        .from('warehouses')
+        .delete()
+        .eq('id', id); //Muy importante para indicar qué registro eliminar
+
+    if (error) throw error;
+
+    //Actualizamos el estado local eliminando el almacen
     set((state) => ({
-      stores: state.stores.map((store) => 
-        store.id === id ? { ...store, ...data } : store
-      )
+      warehouses: state.warehouses.filter((w) => w.id !== id),
+      isLoading: false,
     }));
+    } catch (error) {
+      console.error('Error deleting warehouse:', error);
+      set({ error: 'Failed to delete warehouse', isLoading: false });
+    }
   },
   
-  deleteStore: (id) => {
-    set((state) => ({
-      stores: state.stores.filter((store) => store.id !== id)
-    }));
-  },
-  
-  // Trucks
-  addTruck: (truck) => {
-    const newTruck = {
-      ...truck,
-      id: Math.random().toString(36).substring(2, 9)
+  // TIENDAS
+  //Añadir tienda
+  addStore: async (storeInput) => {
+    //Preparar datos para supabase
+    const dbData = {
+      name: storeInput.name,
+      lat: storeInput.location.lat,
+      lng: storeInput.location.lng,
+      demand: storeInput.demand,
+      address: storeInput.address,
+      start_time: storeInput.timeWindow?.start ? `${storeInput.timeWindow.start}:00` : null,
+      end_time: storeInput.timeWindow?.end ? `${storeInput.timeWindow.end}:00` : null,
     };
-    set((state) => ({
-      trucks: [...state.trucks, newTruck]
-    }));
+
+    set({ isLoading: true, error: null});
+    try {
+      //Insertamos en supabase y pedimos que devuelva el registro generado
+      const { data, error } = await supabase
+        .from('stores')
+        .insert(dbData)
+        .select() //Pide que devuelva lo insertado
+        .single(); //Esperamos solo un resultado
+
+      if (error) throw error;
+
+      //Formateamos la espuesta para que coincida con nuestro tipo Store
+      const newStore: Store = {
+        id: data.id,
+        name: data.name,
+        location: { lat: data.lat, lng: data.lng },
+        demand: data.demand,
+        address: data.address,
+        timeWindow: data.start_time && data.end_time
+          ? { start: data.start_time.substring(0,5), end: data.end_time.substring(0,5) }
+          : undefined,
+      };
+
+      //Actualizamos el estado local añadiendo la nueva tienda
+      set((state) => ({
+        stores: [...state.stores, newStore],
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Error adding store:', error);
+      set({ error: 'Failed to add store', isLoading: false });
+    }
   },
   
-  updateTruck: (id, data) => {
-    set((state) => ({
-      trucks: state.trucks.map((truck) => 
-        truck.id === id ? { ...truck, ...data } : truck
-      )
-    }));
+  //Actualizar tienda
+  updateStore: async (id, storeInput) => {
+    //Preparamos datos (solo los que se podrían actualizar)
+    const dbData = {
+      name: storeInput.name,
+      lat: storeInput.location?.lat,
+      lng: storeInput.location?.lng,
+      demand: storeInput.demand,
+      address: storeInput.address,
+      start_time: storeInput.timeWindow?.start ? `${storeInput.timeWindow.start}:00` : null,
+      end_time: storeInput.timeWindow?.end ? `${storeInput.timeWindow.end}:00` : null,
+    };
+
+    //Filtramos campos undefined para que supabase no los actualice a null
+    Object.keys(dbData).forEach(key => dbData[key] === undefined && delete dbData[key]);
+
+    set({ isLoading: true, error: null});
+    try {
+      const {data, error} = await supabase
+        .from('stores')
+        .update(dbData)
+        .eq('id', id) //Muy importante para indicar qué registro actualizar
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const updatedStore: Store = {
+        id: data.id,
+        name: data.name,
+        location: { lat: data.lat, lng: data.lng },
+        demand: data.demand,
+        address: data.address,
+        timeWindow: data.start_time && data.end_time
+          ? { start: data.start_time.substring(0,5), end: data.end_time.substring(0,5) }
+          : undefined,
+      };
+
+      //Actualizamos el estado local remplazando la tienda modificada
+      set((state) => ({
+        stores: state.stores.map((s) =>
+          s.id === id ? updatedStore : s
+      ),
+      isLoading: false,
+      }))
+    } catch (error) {
+      console.error('Error updating store:', error);
+      set({ error: 'Failed to update store', isLoading: false });
+    }
   },
   
-  deleteTruck: (id) => {
-    set((state) => ({
-      trucks: state.trucks.filter((truck) => truck.id !== id)
-    }));
+  //Eliminar tienda
+  deleteStore: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      const { error } = await supabase
+        .from('stores')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      set((state) => ({
+        stores: state.stores.filter((store) => store.id !== id),
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Error deleting store:', error);
+      set({ error: 'Failed to delete store', isLoading: false });
+    }
+  },
+  
+
+  // Camiones
+  // Añadir camión
+  addTruck: async (truckInput) => {
+    // Preparar datos para supabase
+    const dbData = {
+      name: truckInput.name,
+      capacity: truckInput.capacity,
+      speed: truckInput.speed,
+      warehouse_id: truckInput.warehouseId
+    };
+
+    set({ isLoading: true, error: null });
+    try {
+      // Insertamos en supabase y pedimos que devuelva el registro generado
+      const { data, error } = await supabase
+        .from('trucks')
+        .insert(dbData)
+        .select() // Pide que devuelva lo insertado
+        .single(); // Esperamos solo un resultado
+
+      if (error) throw error;
+
+      // Formateamos la respuesta para que coincida con nuestro tipo Truck
+      const newTruck: Truck = {
+        id: data.id,
+        name: data.name,
+        capacity: data.capacity,
+        speed: data.speed,
+        warehouseId: data.warehouse_id
+      };
+
+      // Actualizamos el estado local añadiendo el nuevo camión
+      set((state) => ({
+        trucks: [...state.trucks, newTruck],
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Error adding truck:', error);
+      set({ error: 'Failed to add truck', isLoading: false });
+    }
+  },
+  
+  // Actualizar camión
+  updateTruck: async (id, truckInput) => {
+    // Preparar datos para supabase
+    const dbData = {
+      name: truckInput.name,
+      capacity: truckInput.capacity,
+      speed: truckInput.speed,
+      warehouse_id: truckInput.warehouseId
+    };
+
+    set({ isLoading: true, error: null });
+    try {
+      const { data, error } = await supabase
+        .from('trucks')
+        .update(dbData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const updatedTruck: Truck = {
+        id: data.id,
+        name: data.name,
+        capacity: data.capacity,
+        speed: data.speed,
+        warehouseId: data.warehouse_id
+      };
+
+      // Actualizamos el estado local reemplazando el camión modificado
+      set((state) => ({
+        trucks: state.trucks.map((t) =>
+          t.id === id ? updatedTruck : t
+        ),
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Error updating truck:', error);
+      set({ error: 'Failed to update truck', isLoading: false });
+    }
+  },
+  
+  // Eliminar camión
+  deleteTruck: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      const { error } = await supabase
+        .from('trucks')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      set((state) => ({
+        trucks: state.trucks.filter((truck) => truck.id !== id),
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Error deleting truck:', error);
+      set({ error: 'Failed to delete truck', isLoading: false });
+    }
   },
   
   // Routes
