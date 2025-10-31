@@ -538,107 +538,45 @@ const useDataStore = create<DataState>((set, get) => ({
   },
   
   // Generate optimized routes
-  generateRoutes: () => {
+  generateRoutes: async () => {
+    // 1. Obtiene los datos actuales del estado (leídos de la BD)
     const { warehouses, stores, trucks } = get();
-    
-    // This is a simplified mock implementation of route generation
-    // In a real app, this would call a backend API with a proper MDVRP algorithm
-    
-    // Clear existing routes
-    set({ routes: [] });
-    
-    // For each warehouse, create simple routes to nearby stores
-    warehouses.forEach(warehouse => {
-      // Get trucks for this warehouse
-      const warehouseTrucks = trucks.filter(t => t.warehouseId === warehouse.id);
-      
-      if (warehouseTrucks.length === 0) return;
-      
-      // Simple distance calculation (not considering real road distances)
-      const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-        const R = 6371; // Radius of the earth in km
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = 
-          Math.sin(dLat/2) * Math.sin(dLat/2) +
-          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-          Math.sin(dLon/2) * Math.sin(dLon/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c; // Distance in km
-      };
-      
-      // Group stores by proximity to this warehouse
-      const storesWithDistance = stores.map(store => ({
-        ...store,
-        distance: calculateDistance(
-          warehouse.location.lat, warehouse.location.lng,
-          store.location.lat, store.location.lng
-        )
-      }));
-      
-      // Sort by distance (closest first)
-      storesWithDistance.sort((a, b) => a.distance - b.distance);
-      
-      // Assign stores to trucks (simple round-robin for this mock)
-      const truckAssignments: Record<string, string[]> = {};
-      warehouseTrucks.forEach(truck => {
-        truckAssignments[truck.id] = [];
+
+    if (warehouses.length === 0 || stores.length === 0 || trucks.length === 0) {
+      console.warn("Se necesitan almacenes, tiendas y camiones para generar rutas.");
+      set({ error: "No hay suficientes datos para generar rutas.", routes: [] });
+      return;
+    }
+
+    set({ isLoading: true, error: null, routes: [] }); // Limpia rutas viejas y muestra carga
+
+    try {
+      // 2. ¡Llama a la Edge Function por su nombre!
+      const { data, error } = await supabase.functions.invoke('solve-mdvrp', {
+        // 3. Envía los datos de la BD como 'body'
+        body: JSON.stringify({ warehouses, stores, trucks }),
       });
-      
-      // Distribute stores among trucks
-      storesWithDistance.forEach((store, index) => {
-        const truckIndex = index % warehouseTrucks.length;
-        const truckId = warehouseTrucks[truckIndex].id;
-        truckAssignments[truckId].push(store.id);
+
+      if (error) {
+        throw error; // Lanza el error si Supabase falla
+      }
+
+      // 4. Recibe las rutas del algoritmo
+      if (data && data.routes) {
+        // 5. ¡Guarda las rutas REALES en el estado!
+        set({ routes: data.routes, isLoading: false });
+      } else {
+        throw new Error('Respuesta inválida de la función de rutas.');
+      }
+
+    } catch (error) {
+      console.error('Error al generar rutas:', error);
+      set({
+        error: `Error al generar rutas: ${error.message}`,
+        isLoading: false,
       });
-      
-      // Create routes
-      Object.entries(truckAssignments).forEach(([truckId, storeIds]) => {
-        if (storeIds.length === 0) return;
-        
-        // Calculate total distance (sum of distances between consecutive points)
-        let totalDistance = 0;
-        let prevLat = warehouse.location.lat;
-        let prevLng = warehouse.location.lng;
-        
-        storeIds.forEach(storeId => {
-          const store = stores.find(s => s.id === storeId)!;
-          totalDistance += calculateDistance(
-            prevLat, prevLng,
-            store.location.lat, store.location.lng
-          );
-          prevLat = store.location.lat;
-          prevLng = store.location.lng;
-        });
-        
-        // Add return to warehouse
-        totalDistance += calculateDistance(
-          prevLat, prevLng,
-          warehouse.location.lat, warehouse.location.lng
-        );
-        
-        // Calculate estimated time (distance / speed)
-        const truck = trucks.find(t => t.id === truckId)!;
-        const estimatedTime = totalDistance / truck.speed; // Time in hours
-        
-        // Create the route
-        const route: Route = {
-          id: Math.random().toString(36).substring(2, 9),
-          warehouseId: warehouse.id,
-          truckId,
-          stores: storeIds,
-          distance: parseFloat(totalDistance.toFixed(2)),
-          estimatedTime: parseFloat(estimatedTime.toFixed(2)),
-          created: new Date().toISOString()
-        };
-        
-        // Add to routes
-        set((state) => ({
-          routes: [...state.routes, route]
-        }));
-      });
-    });
-  }
+    }
+  },
 }));
 
 export default useDataStore;
