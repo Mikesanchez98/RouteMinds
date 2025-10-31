@@ -9,6 +9,7 @@ interface AuthState {
   isAuthenticated: boolean;   // Estado de autenticación
   isLoading: boolean;        // Indicador de carga
   error: string | null;      // Mensaje de error
+  isInitialized: boolean;  // Indicador de inicialización
   login: (email: string, password: string) => Promise<void>;      // Función de inicio de sesión
   register: (username: string, email: string, password: string) => Promise<void>;  // Función de registro
   logout: () => Promise<void>;  // Función de cierre de sesión
@@ -22,6 +23,7 @@ const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: false,
   error: null,
+  isInitialized: false,
   
   // Función de inicio de sesión
   login: async (email: string, password: string) => {
@@ -128,6 +130,24 @@ const useAuthStore = create<AuthState>((set) => ({
 
   // Función para limpiar mensajes de error
   clearError: () => set({ error: null }),
+
 }));
+
+supabase.auth.onAuthStateChange((event, session) => {
+  if (session && session.user){
+    //El usuario ha iniciado sesión o la sesión ha sido restaurada
+    const user: User = {
+      id: session.user.id,
+      email: session.user.email!,
+      username: session.user.user_metadata.username || session.user.email!,
+      role: session.user.user_metadata.role || 'user'
+    };
+    //Actualiza el store y marca como inicializado
+    useAuthStore.setState({ user, isAuthenticated: true, isInitialized: true });
+  } else {
+    //EL usuario ha cerrado sesión o no había sesión al cargar
+    useAuthStore.setState({ user: null, isAuthenticated: false, isInitialized: true });
+  }
+});
 
 export default useAuthStore;

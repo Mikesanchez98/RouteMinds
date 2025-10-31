@@ -20,9 +20,21 @@ import ReportsPage from './pages/reports/ReportsPage';
 
 // Protected Route
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated } = useAuthStore();
+  //Obtener estado de autenticación e inicialización desde el store
+  const { isAuthenticated, isInitialized } = useAuthStore();
+
+  if(!isInitialized) {
+    //Aún no sabemos si el usuario esta logeado.
+    //Muestra una pantalla de carga o nada.
+    return(
+      <div className="min-h-screen flex items-center justify-center">
+        <div>Loading session...</div>
+      </div>
+    )
+  }
   
   if (!isAuthenticated) {
+    //Ahora SI sabemos que el store esta inicializado yu que no esta autenticado.
     return <Navigate to="/login" replace />;
   }
   
