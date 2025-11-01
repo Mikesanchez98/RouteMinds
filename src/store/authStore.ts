@@ -136,6 +136,8 @@ const useAuthStore = create<AuthState>((set) => ({
 supabase.auth.onAuthStateChange((event, session) => {
   if (session && session.user){
     //El usuario ha iniciado sesión o la sesión ha sido restaurada
+    console.log('Auth Store: Sesión recibida. Metadata:', session.user.user_metadata);
+
     const user: User = {
       id: session.user.id,
       email: session.user.email!,
