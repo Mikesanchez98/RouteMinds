@@ -117,7 +117,16 @@ const useDataStore = create<DataState>((set, get) => ({
     try{
       const { data, error } = await supabase.from('warehouses').select('*');
       if (error) throw error;
-      set({ warehouses: data || [], isLoading: false });
+
+      const formattedData: Warehouse[] = data?.map(warehouse => ({
+        ...warehouse,
+        location: {
+          lat: warehouse.lat,
+          lng: warehouse.lng
+        },
+      })) || [];
+
+      set({ warehouses: formattedData, isLoading: false });
     } catch (error) {
       console.error('Error fetching warehouses:', error);
       set({ error: 'Failed to load warehouses', isLoading: false });
@@ -130,15 +139,18 @@ const useDataStore = create<DataState>((set, get) => ({
       const { data, error } = await supabase.from('stores').select('*');
       if (error) throw error;
       //Supabase save 'time' as string HH:MM:SS, adjust only if necessary
-      const formattedData = data?.map(store => ({
+      const formattedData: Store[] = data?.map(store => ({
         ...store,
+
+        location: { lat: store.lat, lng: store.lng },
+
         timeWindow: store.start_time && store.end_time
-          ? { start: store.start_time.substring(onabort, 5), end: store.end_time.substring(0,5) }
-          :undefined,
+          ? { start: store.start_time.substring(0, 5), end: store.end_time.substring(0, 5) }
+          : undefined,
         start_time: undefined, // remove original fields
         end_time: undefined,   
       })) || [];
-      set({ stores:formattedData, isLoading: false });
+      set({ stores: formattedData, isLoading: false });
     } catch (error) {
       console.error('Error fetching stores:', error);
       set({ error: 'Failed to load stores', isLoading: false });
