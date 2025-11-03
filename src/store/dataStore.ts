@@ -158,32 +158,84 @@ const useDataStore = create<DataState>((set, get) => ({
   },
 
   fetchTrucks: async () => {
-  set({ isLoading: true });
-  try {
-    // Usamos 'select' con referencia para obtener el nombre del almacén también
-    const { data, error } = await supabase
-      .from('trucks')
-      .select(`
-        *,
-        warehouse:warehouses ( name )
-      `); // Esto asume que llamaste 'warehouse' a la relación FK
+      set({ isLoading: true });
+      try {
+        // 1. Corregimos el query (petición) a Supabase:
+        // Pedimos los campos del camión Y el 'name' de la tabla 'warehouses' relacionada.
+        const { data, error } = await supabase
+          .from('trucks')
+          .select(`
+            id,
+            name,
+            capacity,
+            speed,
+            warehouse_id,
+            warehouses ( name )
+          `);
 
-    if (error) throw error;
+        if (error) throw error;
 
-    // Formateamos para que coincida con tu tipo Truck (que espera warehouseId)
-    // Y añadimos el nombre del almacén si quieres mostrarlo fácilmente
-    const formattedData = data?.map(truck => ({
-        ...truck,
-        warehouseName: truck.warehouse?.name || 'Unknown', // Nombre extra
-        warehouse: undefined, // Quitamos el objeto anidado
-    })) || [];
+        // 2. Corregimos el formateo de los datos:
+        // Mapeamos los datos de la BD a la "forma" que espera tu app.
+        const formattedData = data?.map(truck => ({
+          id: truck.id,
+          name: truck.name,
+          capacity: truck.capacity,
+          speed: truck.speed,
+          warehouseId: truck.warehouse_id, // <-- ¡La conversión clave! (de snake_case a camelCase)
+          warehouseName: truck.warehouses?.name || 'Sin asignar', // <-- Obtenemos el nombre para la tabla
+        })) || [];
 
-    set({ trucks: formattedData, isLoading: false });
-  } catch (error) {
-    console.error('Error fetching trucks:', error);
-    set({ error: 'Failed to load trucks', isLoading: false });
-  }
-},
+        set({ trucks: formattedData, isLoading: false });
+      } catch (error) {
+        console.error('Error fetching trucks:', error);
+        set({ error: 'Failed to load trucks', isLoading: false });
+      }
+    },
+
+// En src/store/dataStore.ts
+
+    fetchRoutesByDate: async (date: Date) => {
+      set({ isLoading: true });
+
+      // Formatea la fecha para Supabase
+      const startDate = new Date(date);
+      startDate.setHours(0, 0, 0, 0); // Inicio del día
+
+      const endDate = new Date(date);
+      endDate.setHours(23, 59, 59, 999); // Fin del día
+
+      try {
+        const { data, error } = await supabase
+          .from('routes')
+          .select('*')
+          // Filtra donde 'created_at' es mayor o igual al inicio del día
+          .gte('created_at', startDate.toISOString())
+          // Y menor o igual al fin del día
+          .lte('created_at', endDate.toISOString())
+          // Ordena por fecha de creación
+          .order('created_at', { ascending: false }); 
+
+        if (error) throw error;
+        
+        // Formateamos los datos de la BD a la forma de la App
+        const formattedRoutes: Route[] = data.map(route => ({
+          id: route.id,
+          warehouseId: route.warehouse_id,
+          truckId: route.truck_id,
+          stores: route.stores_sequence, // jsonb a array
+          distance: route.distance,
+          estimatedTime: route.estimated_time,
+          created: route.created_at
+        }));
+
+        set({ routes: formattedRoutes, isLoading: false });
+        
+      } catch (error) {
+        console.error('Error fetching routes by date:', error);
+        set({ error: 'Failed to load routes', isLoading: false });
+      }
+    },
 
 //INICIO DE LAS OPERACIONES CRUD
 

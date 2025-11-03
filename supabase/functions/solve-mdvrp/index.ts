@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { corsHeaders } from '../_shared/cors.ts'; 
+import { corsHeaders } from '../_shared/cors.ts';
+import {createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // --- Definición de Tipos (de tu types.ts) ---
 interface Location { lat: number; lng: number; }
@@ -264,30 +265,76 @@ class MDVRPSolverTS {
 
 // --- El Servidor (Manejador de la Función) ---
 serve(async (req) => {
-  // Manejo de CORS preflight request (necesario para React)
+  // Manejo de CORS preflight request
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  console.log("--- solve-mdvrp INVOCADA ---");
+
   try {
-    // 1. Recibe los datos JSON del frontend
+    // --- ¡NUEVO! Crear un cliente de Supabase ---
+    // Necesario para hablar con la base de datos
+    const authHeader = req.headers.get('Authorization')!;
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    // --- FIN DE BLOQUE NUEVO ---
+
     const { warehouses, stores, trucks } = await req.json();
 
-    // 2. Valida los datos
+    console.log("Datos recibidos:", { 
+      warehousesCount: warehouses?.length || 0, 
+      storesCount: stores?.length || 0, 
+      trucksCount: trucks?.length || 0 
+    });
+
     if (!warehouses || !stores || !trucks) {
       throw new Error('Faltan datos (warehouses, stores, trucks)');
     }
 
-    // 3. ¡Ejecuta el algoritmo!
     const solver = new MDVRPSolverTS(warehouses, stores, trucks);
-    const optimizedRoutes = solver.solve(); // Llama al método principal
+    const optimizedRoutes: Route[] = solver.solve(); // Obtiene las rutas
 
-    // 4. Devuelve el resultado
+    console.log("Algoritmo finalizado. Rutas generadas:", optimizedRoutes);
+
+    // --- ¡NUEVO! Guardar las rutas en la base de datos ---
+    if (optimizedRoutes.length > 0) {
+      // Preparamos los datos para la tabla 'routes'
+      const routesToInsert = optimizedRoutes.map(route => ({
+        // 'id' y 'created_at' se generan automáticamente
+        warehouse_id: route.warehouseId,
+        truck_id: route.truckId,
+        distance: route.distance,
+        estimated_time: route.estimatedTime,
+        stores_sequence: route.stores // jsonb acepta arrays
+      }));
+
+      console.log("Guardando rutas en la base de datos...");
+
+      // Insertamos en la tabla 'routes'
+      const { error: insertError } = await supabaseClient
+        .from('routes')
+        .insert(routesToInsert);
+
+      if (insertError) {
+        console.error("Error al guardar rutas:", insertError);
+        throw new Error(`Error al guardar rutas: ${insertError.message}`);
+      }
+
+      console.log("¡Rutas guardadas exitosamente!");
+    }
+    // --- FIN DE BLOQUE NUEVO ---
+
+    // 4. Devuelve el resultado (esto no cambia)
     return new Response(
       JSON.stringify({ routes: optimizedRoutes }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
+    console.error("¡ERROR DENTRO DE LA FUNCIÓN!", error.message);
     return new Response(
       JSON.stringify({ error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
