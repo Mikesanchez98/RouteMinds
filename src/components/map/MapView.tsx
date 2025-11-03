@@ -61,6 +61,7 @@ const RouteLayer: React.FC<{
       routeWhileDragging: false,
       showAlternatives: false,
       fitSelectedRoutes: false,
+      show:false,
       lineOptions: {
         styles: [{ color, weight: 4, opacity: 0.7 }]
       },
