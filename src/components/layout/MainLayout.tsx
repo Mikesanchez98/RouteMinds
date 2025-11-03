@@ -15,14 +15,31 @@ const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  //useEffect
   useEffect(() => {
-    // Cargar datos iniciales cuando el layout se monta
-    fetchWarehouses();
-    fetchStores();
-    fetchTrucks();
-    fetchRoutesByDate(new Date());
-  }, [fetchWarehouses, fetchStores, fetchTrucks, fetchRoutesByDate]); // Dependencias del useEffect
+    // 1. Obtenemos las funciones de carga
+    const { fetchWarehouses, fetchStores, fetchTrucks, fetchRoutesByDate } = useDataStore.getState();
+
+    // 2. Creamos una función 'async' para poder usar 'await'
+    const loadInitialData = async () => {
+      console.log("MainLayout: Cargando todos los datos en paralelo...");
+      try {
+        // 3. ¡La Magia! Ejecuta TODAS las promesas al mismo tiempo
+        await Promise.all([
+          fetchWarehouses(),
+          fetchStores(),
+          fetchTrucks(),
+          fetchRoutesByDate(new Date()) // Carga las rutas de hoy
+        ]);
+        console.log("MainLayout: Todos los datos cargados.");
+      } catch (error) {
+        console.error("MainLayout: Error al cargar datos iniciales", error);
+      }
+    };
+
+    // 4. Llama a la función que acabamos de crear
+    loadInitialData();
+
+  }, []); // <-- ¡Importante! Dejamos el array de dependencias vacío
 
   // Estado para controlar la visibilidad del menú en móviles
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
