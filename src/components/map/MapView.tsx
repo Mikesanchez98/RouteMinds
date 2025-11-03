@@ -42,7 +42,8 @@ const RouteLayer: React.FC<{
   warehouse: Warehouse;
   stores: Store[];
   color: string;
-}> = ({ warehouse, stores, color }) => {
+  isSelected: boolean;
+}> = ({ warehouse, stores, color, isSelected }) => {
   const map = useMap();
   
   useEffect(() => {
@@ -61,7 +62,7 @@ const RouteLayer: React.FC<{
       routeWhileDragging: false,
       showAlternatives: false,
       fitSelectedRoutes: false,
-      show:false,
+      show: isSelected,
       lineOptions: {
         styles: [{ color, weight: 4, opacity: 0.7 }]
       },
@@ -74,7 +75,7 @@ const RouteLayer: React.FC<{
         routingControl.remove();
       }
     };
-  }, [map, warehouse, stores, color]);
+  }, [map, warehouse, stores, color, isSelected]);
   
   return null;
 };
@@ -117,6 +118,8 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute }) =
   const filteredRoutes = selectedRoute 
     ? routes.filter(route => route.id === selectedRoute)
     : routes;
+
+    const showInstructions = !!selectedRoute;
   
   return (
     <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden shadow-md">
@@ -188,6 +191,7 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute }) =
               warehouse={warehouse}
               stores={routeStores}
               color={routeColor}
+              isSelected={showInstructions}
             />
           );
         })}
