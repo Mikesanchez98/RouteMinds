@@ -4,6 +4,64 @@ import Button from '../common/Button';
 import Input from '../common/Input';
 import useDataStore from '../../store/dataStore';
 import { Store } from '../../types';
+import { useForm, Controller, SubmitHandler } from 'react-hook-form'; // <-- IMPORTANTE
+import AsyncSelect from 'react-select/async';
+
+// Define el tipo para los datos del formulario (plano)
+type StoreFormData = {
+  name: string;
+  lat: number;
+  lng: number;
+  demand: number;
+  address: string;
+  startTime: string;
+  endTime: string;
+};
+
+// --- Funciones de API (Copiadas de WarehouseForm) ---
+const VITE_LOCATIONIQ_API_KEY = import.meta.env.VITE_LOCATIONIQ_API_KEY;
+
+const loadAddressOptions = (inputValue: string, callback: (options: any[]) => void) => {
+  if (!inputValue || inputValue.length < 3) {
+    callback([]);
+    return;
+  }
+  fetch(
+    `https://api.locationiq.com/v1/autocomplete.php?key=${VITE_LOCATIONIQ_API_KEY}&q=${inputValue}&limit=5&format=json`
+  )
+    .then(response => response.json())
+    .then(data => {
+      const options = data.map((place: any) => ({
+        label: place.display_name,
+        value: {
+          address: place.display_name,
+          lat: parseFloat(place.lat),
+          lng: parseFloat(place.lon),
+        },
+      }));
+      callback(options);
+    })
+    .catch(() => callback([]));
+};
+
+const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+  if (!lat || !lng) return "";
+  try {
+    const response = await fetch(
+      `https://api.locationiq.com/v1/reverse.php?key=${VITE_LOCATIONIQ_API_KEY}&lat=${lat}&lon=${lng}&format=json`
+    );
+    const data = await response.json();
+    if (data && data.display_name) {
+      return data.display_name;
+    }
+    return "Dirección no encontrada";
+  } catch (error) {
+    console.error("Error en Geocodificación Inversa:", error);
+    return "Error al buscar la dirección";
+  }
+};
+// --- Fin de Funciones de API ---
+
 
 interface StoreFormProps {
   store?: Store;
@@ -11,95 +69,50 @@ interface StoreFormProps {
 }
 
 const StoreForm: React.FC<StoreFormProps> = ({ store, onComplete }) => {
-  const [name, setName] = useState(store?.name || '');
-  const [lat, setLat] = useState(store?.location.lat.toString() || '');
-  const [lng, setLng] = useState(store?.location.lng.toString() || '');
-  const [demand, setDemand] = useState(store?.demand.toString() || '');
-  const [address, setAddress] = useState(store?.address || '');
-  const [startTime, setStartTime] = useState(store?.timeWindow?.start || '');
-  const [endTime, setEndTime] = useState(store?.timeWindow?.end || '');
-  
-  const [errors, setErrors] = useState({
-    name: '',
-    lat: '',
-    lng: '',
-    demand: '',
-    address: '',
-    timeWindow: '',
-  });
+  // 1. ELIMINAMOS todos los 'useState' para los campos
+  const [isGeocoding, setIsGeocoding] = useState(false);
   
   const { addStore, updateStore } = useDataStore();
   
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  // 2. INICIALIZAMOS 'useForm'
+  const {
+    handleSubmit,
+    control,
+    setValue,
+    getValues,
+    formState: { errors },
+  } = useForm<StoreFormData>({
+    // Aplanamos los datos por defecto para el formulario
+    defaultValues: {
+      name: store?.name || '',
+      address: store?.address || '',
+      lat: store?.location.lat || 0,
+      lng: store?.location.lng || 0,
+      demand: store?.demand || 0,
+      startTime: store?.timeWindow?.start || '',
+      endTime: store?.timeWindow?.end || '',
+    },
+  });
+
+  // 3. Función 'onSubmit' para react-hook-form
+  const onSubmitForm: SubmitHandler<StoreFormData> = (data) => {
+    // 'data' ya está validado
     
-    // Validate form
-    const newErrors = {
-      name: '',
-      lat: '',
-      lng: '',
-      demand: '',
-      address: '',
-      timeWindow: '',
-    };
-    let hasError = false;
-    
-    if (!name.trim()) {
-      newErrors.name = 'Name is required';
-      hasError = true;
-    }
-    
-    if (!lat.trim()) {
-      newErrors.lat = 'Latitude is required';
-      hasError = true;
-    } else if (isNaN(Number(lat)) || Number(lat) < -90 || Number(lat) > 90) {
-      newErrors.lat = 'Latitude must be between -90 and 90';
-      hasError = true;
-    }
-    
-    if (!lng.trim()) {
-      newErrors.lng = 'Longitude is required';
-      hasError = true;
-    } else if (isNaN(Number(lng)) || Number(lng) < -180 || Number(lng) > 180) {
-      newErrors.lng = 'Longitude must be between -180 and 180';
-      hasError = true;
-    }
-    
-    if (!demand.trim()) {
-      newErrors.demand = 'Demand is required';
-      hasError = true;
-    } else if (isNaN(Number(demand)) || Number(demand) <= 0) {
-      newErrors.demand = 'Demand must be a positive number';
-      hasError = true;
-    }
-    
-    if (!address.trim()) {
-      newErrors.address = 'Address is required';
-      hasError = true;
-    }
-    
-    // Time window validation (both or none)
-    if ((startTime && !endTime) || (!startTime && endTime)) {
-      newErrors.timeWindow = 'Both start and end time must be provided';
-      hasError = true;
-    }
-    
-    if (hasError) {
-      setErrors(newErrors);
-      return;
-    }
-    
+    // Reformateamos los datos a la estructura que espera la BD
     const storeData = {
-      name,
+      name: data.name,
+      address: data.address,
+      demand: Number(data.demand),
       location: {
-        lat: Number(lat),
-        lng: Number(lng),
+        lat: Number(data.lat),
+        lng: Number(data.lng),
       },
-      demand: Number(demand),
-      address,
-      timeWindow: startTime && endTime ? { start: startTime, end: endTime } : undefined,
+      // Lógica para la ventana de tiempo
+      timeWindow: data.startTime && data.endTime 
+        ? { start: data.startTime, end: data.endTime } 
+        : undefined,
     };
-    
+
     if (store) {
       updateStore(store.id, storeData);
     } else {
@@ -108,83 +121,192 @@ const StoreForm: React.FC<StoreFormProps> = ({ store, onComplete }) => {
     
     onComplete();
   };
-  
+
+  // 4. Función para el botón de 'Buscar Dirección'
+  const handleFindAddress = async () => {
+    setIsGeocoding(true);
+    const lat = getValues('lat');
+    const lng = getValues('lng');
+
+    if (!lat || !lng) {
+      alert("Por favor, introduce la latitud y longitud.");
+      setIsGeocoding(false);
+      return;
+    }
+
+    const foundAddress = await reverseGeocode(Number(lat), Number(lng));
+    setValue('address', foundAddress);
+    setIsGeocoding(false);
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Input
-        label="Store Name"
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        error={errors.name}
-        fullWidth
-        placeholder="Enter store name"
+    // 5. CONECTAMOS el 'handleSubmit' de RHF al <form>
+    <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-4">
+      
+      {/* 6. CONECTAMOS los Inputs con <Controller> */}
+      <Controller
+        name="name"
+        control={control}
+        rules={{ required: 'El nombre es obligatorio' }}
+        render={({ field, fieldState: { error } }) => (
+          <Input
+            {...field}
+            label="Store Name"
+            error={error?.message}
+            fullWidth
+            placeholder="Enter store name"
+          />
+        )}
       />
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Input
-          label="Latitude"
-          type="text"
-          value={lat}
-          onChange={(e) => setLat(e.target.value)}
-          error={errors.lat}
-          fullWidth
-          placeholder="e.g., 40.7128"
+      <Controller
+        name="demand"
+        control={control}
+        rules={{ 
+          required: 'La demanda es obligatoria', 
+          valueAsNumber: true,
+          min: { value: 1, message: 'La demanda debe ser positiva' }
+        }}
+        render={({ field, fieldState: { error } }) => (
+          <Input
+            {...field}
+            label="Demand"
+            type="number"
+            error={error?.message}
+            fullWidth
+            placeholder="Enter demand amount"
+          />
+        )}
+      />
+      
+      {/* 7. El CAMPO DE BÚSQUEDA de Dirección */}
+      <div>
+        <label htmlFor="address" className="block text-sm font-medium text-gray-700">
+          Buscar Dirección
+        </label>
+        <Controller
+          name="address"
+          control={control}
+          rules={{ required: 'La dirección es obligatoria' }}
+          render={({ field }) => (
+            <AsyncSelect
+              {...field}
+              id="address"
+              cacheOptions
+              defaultOptions
+              loadOptions={loadAddressOptions}
+              placeholder="Empieza a escribir una dirección..."
+              isClearable
+              onChange={(selectedOption) => {
+                if (selectedOption) {
+                  setValue('address', selectedOption.label);
+                  setValue('lat', selectedOption.value.lat);
+                  setValue('lng', selectedOption.value.lng);
+                  field.onChange(selectedOption.label);
+                } else {
+                  setValue('address', '');
+                  setValue('lat', 0);
+                  setValue('lng', 0);
+                  field.onChange('');
+                }
+              }}
+              value={
+                field.value
+                  ? { label: field.value, value: { address: field.value } }
+                  : null
+              }
+            />
+          )}
         />
-        
-        <Input
-          label="Longitude"
-          type="text"
-          value={lng}
-          onChange={(e) => setLng(e.target.value)}
-          error={errors.lng}
+        {errors.address && (
+          <span className="text-xs text-red-600">{errors.address.message}</span>
+        )}
+      </div>
+      
+      {/* 8. CAMPOS 'lat' y 'lng' */}
+      <div className="grid grid-cols-2 gap-4">
+        <Controller
+          name="lat"
+          control={control}
+          rules={{ 
+            required: 'Latitud es requerida', 
+            valueAsNumber: true,
+            min: { value: -90, message: 'Debe ser > -90' },
+            max: { value: 90, message: 'Debe ser < 90' }
+          }}
+          render={({ field, fieldState: { error } }) => (
+            <Input
+              {...field}
+              label="Latitud"
+              type="number"
+              step="any"
+              error={error?.message}
+            />
+          )}
+        />
+        <Controller
+          name="lng"
+          control={control}
+          rules={{ 
+            required: 'Longitud es requerida', 
+            valueAsNumber: true,
+            min: { value: -180, message: 'Debe ser > -180' },
+            max: { value: 180, message: 'Debe ser < 180' }
+          }}
+          render={({ field, fieldState: { error } }) => (
+            <Input
+              {...field}
+              label="Longitud"
+              type="number"
+              step="any"
+              error={error?.message}
+            />
+          )}
+        />
+      </div>
+
+      {/* 9. BOTÓN de 'Buscar Dirección' */}
+      <div>
+        <Button
+          type="button" 
+          onClick={handleFindAddress}
+          disabled={isGeocoding}
+          variant="outline"
           fullWidth
-          placeholder="e.g., -74.0060"
+        >
+          {isGeocoding ? 'Buscando...' : 'Buscar Dirección desde Coordenadas'}
+        </Button>
+      </div>
+
+      {/* 10. CAMPOS de 'Time Window' */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Controller
+          name="startTime"
+          control={control}
+          render={({ field }) => (
+            <Input
+              {...field}
+              label="Opening Time"
+              type="time"
+              fullWidth
+            />
+          )}
+        />
+        <Controller
+          name="endTime"
+          control={control}
+          render={({ field }) => (
+            <Input
+              {...field}
+              label="Closing Time"
+              type="time"
+              fullWidth
+            />
+          )}
         />
       </div>
       
-      <Input
-        label="Demand"
-        type="number"
-        value={demand}
-        onChange={(e) => setDemand(e.target.value)}
-        error={errors.demand}
-        fullWidth
-        placeholder="Enter demand amount"
-      />
-      
-      <Input
-        label="Address"
-        type="text"
-        value={address}
-        onChange={(e) => setAddress(e.target.value)}
-        error={errors.address}
-        fullWidth
-        placeholder="Enter full address"
-      />
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Input
-          label="Opening Time"
-          type="time"
-          value={startTime}
-          onChange={(e) => setStartTime(e.target.value)}
-          fullWidth
-        />
-        
-        <Input
-          label="Closing Time"
-          type="time"
-          value={endTime}
-          onChange={(e) => setEndTime(e.target.value)}
-          fullWidth
-        />
-      </div>
-      
-      {errors.timeWindow && (
-        <p className="text-sm text-red-600">{errors.timeWindow}</p>
-      )}
-      
+      {/* Botones de Cancelar y Guardar */}
       <div className="flex justify-end space-x-4 pt-4">
         <Button
           type="button"
@@ -193,7 +315,6 @@ const StoreForm: React.FC<StoreFormProps> = ({ store, onComplete }) => {
         >
           Cancel
         </Button>
-        
         <Button
           type="submit"
           leftIcon={<StoreIcon size={18} />}
