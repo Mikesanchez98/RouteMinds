@@ -11,7 +11,7 @@ const MainLayout: React.FC = () => {
   // Obtener funciones y estado del store de autenticación
   const { user, logout } = useAuthStore();
   //Obtener las funciones fetch del dataStore
-  const { fetchWarehouses, fetchStores, fetchTrucks } = useDataStore();
+  const { fetchWarehouses, fetchStores, fetchTrucks, fetchRoutesByDate } = useDataStore();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -21,8 +21,9 @@ const MainLayout: React.FC = () => {
     fetchWarehouses();
     fetchStores();
     fetchTrucks();
-  }, [fetchWarehouses, fetchStores, fetchTrucks]); // Dependencias del useEffect
-  
+    fetchRoutesByDate(new Date());
+  }, [fetchWarehouses, fetchStores, fetchTrucks, fetchRoutesByDate]); // Dependencias del useEffect
+
   // Estado para controlar la visibilidad del menú en móviles
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
