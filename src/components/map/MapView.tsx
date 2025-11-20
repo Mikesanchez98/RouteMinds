@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import L from 'leaflet';
 import 'leaflet-routing-machine';
 import useDataStore from '../../store/dataStore';
-import { Warehouse, Store, Route as RouteType } from '../../types';
+import { Warehouse, Store } from '../../types';
 
-// Fix Leaflet marker icons
+// --- 1. CONFIGURACIÓN DE ICONOS ---
+// Arreglo para los iconos por defecto de Leaflet que a veces fallan en React
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
@@ -20,7 +21,7 @@ const DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Custom icons
+// Iconos personalizados de colores
 const warehouseIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
   shadowUrl: iconShadow,
@@ -37,7 +38,7 @@ const storeIcon = new L.Icon({
   popupAnchor: [1, -34],
 });
 
-// RouteLayer component to handle routing
+// --- 2. COMPONENTE RouteLayer (Dibuja las líneas) ---
 const RouteLayer: React.FC<{
   warehouse: Warehouse;
   stores: Store[];
@@ -49,27 +50,27 @@ const RouteLayer: React.FC<{
   useEffect(() => {
     if (!stores.length) return;
     
-    // Create waypoints starting from warehouse
+    // Puntos de la ruta: Almacén -> Tiendas -> Almacén
     const waypoints = [
       L.latLng(warehouse.location.lat, warehouse.location.lng),
       ...stores.map(store => L.latLng(store.location.lat, store.location.lng)),
-      L.latLng(warehouse.location.lat, warehouse.location.lng), // Return to warehouse
+      L.latLng(warehouse.location.lat, warehouse.location.lng),
     ];
     
-    // Create the routing control
+    // Crear el control de rutas
     const routingControl = L.Routing.control({
       waypoints,
       routeWhileDragging: false,
       showAlternatives: false,
       fitSelectedRoutes: false,
-      show: isSelected,
+      show: isSelected, // Muestra las instrucciones solo si está seleccionada
       lineOptions: {
         styles: [{ color, weight: 4, opacity: 0.7 }]
       },
-      createMarker: () => null, // Don't show default markers
+      createMarker: () => null, // No crear marcadores extra (usamos los nuestros)
     }).addTo(map);
     
-    // Cleanup - use remove() instead of removeControl
+    // Limpieza al desmontar
     return () => {
       if (routingControl) {
         routingControl.remove();
@@ -80,7 +81,7 @@ const RouteLayer: React.FC<{
   return null;
 };
 
-// MapBounds component to set the map view to fit all markers
+// --- 3. COMPONENTE MapBounds (Ajusta el zoom) ---
 interface MapBoundsProps {
   warehouses: Warehouse[];
   stores: Store[];
@@ -106,27 +107,36 @@ const MapBounds: React.FC<MapBoundsProps> = ({ warehouses, stores }) => {
   return null;
 };
 
+// --- 4. COMPONENTE PRINCIPAL MapView ---
+
+// Definimos qué propiedades acepta este componente
 interface MapViewProps {
   showRoutes?: boolean;
   selectedRoute?: string;
-  showWarehouses?: boolean;
-  showStores?: boolean;
+  showWarehouses?: boolean; // Nuevo: Filtro de almacenes
+  showStores?: boolean;     // Nuevo: Filtro de tiendas
 }
 
-const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute, showWarehouses = true, showStores = true }) => {
+const MapView: React.FC<MapViewProps> = ({ 
+  showRoutes = true, 
+  selectedRoute,
+  showWarehouses = true, // Por defecto se muestran
+  showStores = true      // Por defecto se muestran
+}) => {
   const { warehouses, stores, routes } = useDataStore();
   
-  // Filter routes based on selectedRoute prop
+  // Filtramos las rutas si hay una seleccionada específicamente
   const filteredRoutes = selectedRoute 
     ? routes.filter(route => route.id === selectedRoute)
     : routes;
 
-    const showInstructions = !!selectedRoute;
+  // Solo mostramos instrucciones si hay una ruta específica seleccionada
+  const showInstructions = !!selectedRoute;
   
   return (
     <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden shadow-md">
       <MapContainer
-        center={[40, -95]} // Default center (US)
+        center={[40, -95]} // Centro por defecto (se ajustará solo con MapBounds)
         zoom={4}
         style={{ height: '100%', width: '100%', minHeight: '400px' }}
       >
@@ -137,7 +147,7 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute, sho
         
         <MapBounds warehouses={warehouses} stores={stores} />
         
-        {/* Warehouses */}
+        {/* --- RENDERIZADO DE ALMACENES (Con filtro) --- */}
         {showWarehouses && warehouses.map((warehouse) => (
           <Marker
             key={warehouse.id}
@@ -154,7 +164,7 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute, sho
           </Marker>
         ))}
         
-        {/* Stores */}
+        {/* --- RENDERIZADO DE TIENDAS (Con filtro) --- */}
         {showStores && stores.map((store) => (
           <Marker
             key={store.id}
@@ -176,7 +186,7 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute, sho
           </Marker>
         ))}
         
-        {/* Routes */}
+        {/* --- RENDERIZADO DE RUTAS (Con filtro) --- */}
         {showRoutes && filteredRoutes.map((route) => {
           const warehouse = warehouses.find(w => w.id === route.warehouseId);
           if (!warehouse) return null;
@@ -184,7 +194,7 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute, sho
           const routeStores = stores.filter(s => route.stores.includes(s.id));
           if (routeStores.length === 0) return null;
           
-          // Generate a color based on the route id
+          // Generar color basado en ID
           const routeColor = `#${route.id.substring(0, 6).padEnd(6, '0')}`;
           
           return (
