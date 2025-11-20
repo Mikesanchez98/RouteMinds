@@ -1,11 +1,9 @@
-// Componente de formulario de inicio de sesión
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, LogIn } from 'lucide-react';
 import Button from '../common/Button';
 import Input from '../common/Input';
 import useAuthStore from '../../store/authStore';
-import { supabase } from '../../lib/supabase';
 
 // Función para validar formato de email
 const validateEmail = (email: string): boolean => {
@@ -18,13 +16,12 @@ const LoginForm: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({ email: '', password: '' });
-  const [resetEmailSent, setResetEmailSent] = useState(false);
   
   // Obtener funciones y estado del store de autenticación
   const { login, isLoading, error } = useAuthStore();
   const navigate = useNavigate();
   
-  // Manejar envío del formulario
+  // Manejar envío del formulario de Login
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -54,38 +51,8 @@ const LoginForm: React.FC = () => {
       await login(email, password);
       navigate('/dashboard');
     } catch (error) {
-      // El error es manejado por el store
-    }
-  };
-
-  // Manejar solicitud de restablecimiento de contraseña
-  const handlePasswordReset = async () => {
-    if (!email.trim()) {
-      setErrors({ ...errors, email: 'Por favor ingrese su email para restablecer la contraseña' });
-      return;
-    }
-
-    if (!validateEmail(email)) {
-      setErrors({ ...errors, email: 'Por favor ingrese un email válido' });
-      return;
-    }
-
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      setResetEmailSent(true);
-      setErrors({ email: '', password: '' });
-    } catch (error) {
-      setErrors({
-        ...errors,
-        email: 'Error al enviar el email de restablecimiento. Por favor intente nuevamente.',
-      });
+      // El error es manejado por el store y se mostrará abajo
+      console.error(error);
     }
   };
   
@@ -117,15 +84,10 @@ const LoginForm: React.FC = () => {
         />
       </div>
       
+      {/* Mostrar errores generales del store (como credenciales inválidas) */}
       {error && (
-        <div className="bg-red-50 text-red-700 px-4 py-3 rounded-md text-sm">
+        <div className="bg-red-50 text-red-700 px-4 py-3 rounded-md text-sm border border-red-200">
           {error}
-        </div>
-      )}
-
-      {resetEmailSent && (
-        <div className="bg-green-50 text-green-700 px-4 py-3 rounded-md text-sm">
-          Se han enviado instrucciones para restablecer su contraseña.
         </div>
       )}
       
@@ -142,15 +104,17 @@ const LoginForm: React.FC = () => {
           </label>
         </div>
         
+        {/* --- AQUÍ ESTÁ LA CORRECCIÓN CLAVE --- */}
+        {/* Enlace a la página dedicada de recuperación */}
         <div className="text-sm">
-          <button
-            type="button"
-            onClick={handlePasswordReset}
+          <Link
+            to="/forgot-password"
             className="font-medium text-blue-600 hover:text-blue-500"
           >
             ¿Olvidó su contraseña?
-          </button>
+          </Link>
         </div>
+        {/* ------------------------------------- */}
       </div>
       
       <Button
@@ -165,13 +129,12 @@ const LoginForm: React.FC = () => {
       
       <div className="text-center text-sm text-gray-600">
         ¿No tiene una cuenta?{' '}
-        <button
-          type="button"
-          onClick={() => navigate('/register')}
+        <Link
+          to="/register"
           className="font-medium text-blue-600 hover:text-blue-500"
         >
           Registrarse
-        </button>
+        </Link>
       </div>
     </form>
   );

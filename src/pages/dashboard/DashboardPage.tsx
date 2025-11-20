@@ -5,13 +5,29 @@ import Button from '../../components/common/Button';
 import MapView from '../../components/map/MapView';
 import useDataStore from '../../store/dataStore';
 import useAuthStore from '../../store/authStore';
+import Spinner from '../../components/common/Spinner';
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
-  const { warehouses, stores, trucks, routes, generateRoutes } = useDataStore();
+  const { warehouses, stores, trucks, routes, generateRoutes, isLoading } = useDataStore();
   
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative min-h-[500px]">
+
+      {/* --- BLOQUE DE CARGA (OVERLAY) --- */}
+      {isLoading && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg transition-all">
+          <div className="flex flex-col items-center p-6 bg-white rounded-xl shadow-lg border border-gray-100">
+            <Spinner size={48} className="text-indigo-600"/>
+            <p className="mt-4 text-lg font-semibold text-gray-700 animate-pulse">
+              Procesando...
+            </p>
+            <p className="text-sm text-gray-500">Esto puede tomar unos segundos.</p>
+          </div>
+        </div>
+      )}
+      {/* --- FIN DEL BLOQUE DE CARGA --- */}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Welcome, {user?.username}</h1>
