@@ -1,145 +1,212 @@
-import React from 'react';
-import { Truck, Warehouse, Store, Route, BarChart4 } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import Button from '../../components/common/Button';
-import MapView from '../../components/map/MapView';
+import React, { useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
+import L from 'leaflet';
+import 'leaflet-routing-machine';
 import useDataStore from '../../store/dataStore';
-import useAuthStore from '../../store/authStore';
-import Spinner from '../../components/common/Spinner';
+import { Warehouse, Store } from '../../types';
 
-const DashboardPage: React.FC = () => {
-  const { user } = useAuthStore();
-  const { warehouses, stores, trucks, routes, generateRoutes, isLoading } = useDataStore();
+// Fix Leaflet marker icons
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+const DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
+
+// Custom icons
+const warehouseIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+});
+
+const storeIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+});
+
+// RouteLayer component to handle routing
+const RouteLayer: React.FC<{
+  warehouse: Warehouse;
+  stores: Store[];
+  color: string;
+  isSelected: boolean;
+}> = ({ warehouse, stores, color, isSelected }) => {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (!stores.length) return;
+    
+    // Create waypoints starting from warehouse
+    const waypoints = [
+      L.latLng(warehouse.location.lat, warehouse.location.lng),
+      ...stores.map(store => L.latLng(store.location.lat, store.location.lng)),
+      L.latLng(warehouse.location.lat, warehouse.location.lng), // Return to warehouse
+    ];
+    
+    // Create the routing control
+    const routingControl = L.Routing.control({
+      waypoints,
+      routeWhileDragging: false,
+      showAlternatives: false,
+      fitSelectedRoutes: false,
+      show: isSelected, // Controla si se muestran las instrucciones
+      lineOptions: {
+        styles: [{ color, weight: 4, opacity: 0.7 }]
+      },
+      createMarker: () => null, // Don't show default markers
+    }).addTo(map);
+    
+    // Cleanup
+    return () => {
+      if (routingControl) {
+        routingControl.remove();
+      }
+    };
+  }, [map, warehouse, stores, color, isSelected]);
+  
+  return null;
+};
+
+// MapBounds component to set the map view to fit all markers
+interface MapBoundsProps {
+  warehouses: Warehouse[];
+  stores: Store[];
+}
+
+const MapBounds: React.FC<MapBoundsProps> = ({ warehouses, stores }) => {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (warehouses.length === 0 && stores.length === 0) return;
+    
+    const allPoints = [
+      ...warehouses.map(w => [w.location.lat, w.location.lng]),
+      ...stores.map(s => [s.location.lat, s.location.lng]),
+    ] as [number, number][];
+    
+    if (allPoints.length > 0) {
+      const bounds = L.latLngBounds(allPoints);
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }, [map, warehouses, stores]);
+  
+  return null;
+};
+
+// 1. ACTUALIZAMOS LA INTERFAZ DE PROPS
+interface MapViewProps {
+  showRoutes?: boolean;
+  selectedRoute?: string;
+  // Nuevas props para filtros
+  showWarehouses?: boolean;
+  showStores?: boolean;
+}
+
+// 2. ACTUALIZAMOS EL COMPONENTE PARA USAR LAS PROPS
+const MapView: React.FC<MapViewProps> = ({ 
+  showRoutes = true, 
+  selectedRoute,
+  // Valores por defecto
+  showWarehouses = true,
+  showStores = true
+}) => {
+  const { warehouses, stores, routes } = useDataStore();
+  
+  const filteredRoutes = selectedRoute 
+    ? routes.filter(route => route.id === selectedRoute)
+    : routes;
+
+  const showInstructions = !!selectedRoute;
   
   return (
-    <div className="space-y-6 relative min-h-[500px]">
-
-      {/* --- BLOQUE DE CARGA (OVERLAY) --- */}
-      {isLoading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg transition-all">
-          <div className="flex flex-col items-center p-6 bg-white rounded-xl shadow-lg border border-gray-100">
-            <Spinner size={48} className="text-indigo-600"/>
-            <p className="mt-4 text-lg font-semibold text-gray-700 animate-pulse">
-              Procesando...
-            </p>
-            <p className="text-sm text-gray-500">Esto puede tomar unos segundos.</p>
-          </div>
-        </div>
-      )}
-      {/* --- FIN DEL BLOQUE DE CARGA --- */}
-
-      <div className="flex flex-col md:flex-row md:items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Welcome, {user?.username}</h1>
-          <p className="mt-1 text-gray-600">Route Optimization Dashboard</p>
-        </div>
+    <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden shadow-md">
+      <MapContainer
+        center={[40, -95]} // Default center (US)
+        zoom={4}
+        style={{ height: '100%', width: '100%', minHeight: '400px' }}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
         
-        <div className="mt-4 md:mt-0">
-          <Button
-            onClick={generateRoutes}
-            leftIcon={<Route size={18} />}
+        <MapBounds warehouses={warehouses} stores={stores} />
+        
+        {/* 3. RENDERIZADO CONDICIONAL: Almacenes */}
+        {showWarehouses && warehouses.map((warehouse) => (
+          <Marker
+            key={warehouse.id}
+            position={[warehouse.location.lat, warehouse.location.lng]}
+            icon={warehouseIcon}
           >
-            Generate Optimal Routes
-          </Button>
-        </div>
-      </div>
-      
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-blue-100 rounded-full p-3">
-              <Warehouse className="h-6 w-6 text-blue-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Warehouses</p>
-              <p className="text-2xl font-bold text-gray-800">{warehouses.length}</p>
-            </div>
-          </div>
-        </div>
+            <Popup>
+              <div>
+                <h3 className="font-semibold">{warehouse.name}</h3>
+                <p className="text-sm">{warehouse.address}</p>
+                <p className="text-sm mt-1">Capacity: {warehouse.capacity}</p>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
         
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-orange-100 rounded-full p-3">
-              <Store className="h-6 w-6 text-orange-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Stores</p>
-              <p className="text-2xl font-bold text-gray-800">{stores.length}</p>
-            </div>
-          </div>
-        </div>
+        {/* 4. RENDERIZADO CONDICIONAL: Tiendas */}
+        {showStores && stores.map((store) => (
+          <Marker
+            key={store.id}
+            position={[store.location.lat, store.location.lng]}
+            icon={storeIcon}
+          >
+            <Popup>
+              <div>
+                <h3 className="font-semibold">{store.name}</h3>
+                <p className="text-sm">{store.address}</p>
+                <p className="text-sm mt-1">Demand: {store.demand}</p>
+                {store.timeWindow && (
+                  <p className="text-sm">
+                    Hours: {store.timeWindow.start} - {store.timeWindow.end}
+                  </p>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
         
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-green-100 rounded-full p-3">
-              <Truck className="h-6 w-6 text-green-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Trucks</p>
-              <p className="text-2xl font-bold text-gray-800">{trucks.length}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-purple-100 rounded-full p-3">
-              <Route className="h-6 w-6 text-purple-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Routes</p>
-              <p className="text-2xl font-bold text-gray-800">{routes.length}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Map View */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-800">Network Overview</h2>
-        </div>
-        <div className="h-[400px]">
-          <MapView />
-        </div>
-      </div>
-      
-      {/* Quick Actions */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-800">Quick Actions</h2>
-        </div>
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Link
-              to="/management"
-              className="bg-blue-50 hover:bg-blue-100 p-4 rounded-lg transition-colors flex items-center space-x-3"
-            >
-              <Warehouse className="h-5 w-5 text-blue-600" />
-              <span className="font-medium">Manage Warehouses & Stores</span>
-            </Link>
-            
-            <Link
-              to="/routes"
-              className="bg-purple-50 hover:bg-purple-100 p-4 rounded-lg transition-colors flex items-center space-x-3"
-            >
-              <Route className="h-5 w-5 text-purple-600" />
-              <span className="font-medium">View Route Summaries</span>
-            </Link>
-            
-            <Link
-              to="/time-analysis"
-              className="bg-green-50 hover:bg-green-100 p-4 rounded-lg transition-colors flex items-center space-x-3"
-            >
-              <BarChart4 className="h-5 w-5 text-green-600" />
-              <span className="font-medium">Time Analysis</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+        {/* 5. RENDERIZADO CONDICIONAL: Rutas */}
+        {showRoutes && filteredRoutes.map((route) => {
+          const warehouse = warehouses.find(w => w.id === route.warehouseId);
+          if (!warehouse) return null;
+          
+          const routeStores = stores.filter(s => route.stores.includes(s.id));
+          if (routeStores.length === 0) return null;
+          
+          const routeColor = `#${route.id.substring(0, 6).padEnd(6, '0')}`;
+          
+          return (
+            <RouteLayer
+              key={route.id}
+              warehouse={warehouse}
+              stores={routeStores}
+              color={routeColor}
+              isSelected={showInstructions}
+            />
+          );
+        })}
+      </MapContainer>
     </div>
   );
 };
 
-export default DashboardPage;
+export default MapView;

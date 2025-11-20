@@ -2,6 +2,9 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 
+//Linea para el calendario
+import 'react-datepicker/dist/react-datepicker.css';
+
 // Layout
 import MainLayout from './components/layout/MainLayout';
 

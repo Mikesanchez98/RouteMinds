@@ -109,9 +109,11 @@ const MapBounds: React.FC<MapBoundsProps> = ({ warehouses, stores }) => {
 interface MapViewProps {
   showRoutes?: boolean;
   selectedRoute?: string;
+  showWarehouses?: boolean;
+  showStores?: boolean;
 }
 
-const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute }) => {
+const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute, showWarehouses = true, showStores = true }) => {
   const { warehouses, stores, routes } = useDataStore();
   
   // Filter routes based on selectedRoute prop
@@ -136,7 +138,7 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute }) =
         <MapBounds warehouses={warehouses} stores={stores} />
         
         {/* Warehouses */}
-        {warehouses.map((warehouse) => (
+        {showWarehouses && warehouses.map((warehouse) => (
           <Marker
             key={warehouse.id}
             position={[warehouse.location.lat, warehouse.location.lng]}
@@ -153,7 +155,7 @@ const MapView: React.FC<MapViewProps> = ({ showRoutes = true, selectedRoute }) =
         ))}
         
         {/* Stores */}
-        {stores.map((store) => (
+        {showStores && stores.map((store) => (
           <Marker
             key={store.id}
             position={[store.location.lat, store.location.lng]}
