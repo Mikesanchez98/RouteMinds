@@ -1,9 +1,19 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Truck as TruckIcon } from 'lucide-react';
 import Button from '../common/Button';
 import Input from '../common/Input';
 import useDataStore from '../../store/dataStore';
 import { Truck } from '../../types';
+import { useForm, Controller, SubmitHandler } from 'react-hook-form';
+
+// Definimos la estructura del formulario
+type TruckFormData = {
+  name: string;
+  capacity: number;
+  speed: number;
+  warehouseId: string;
+  currentDriverId: string; // <--- NUEVO CAMPO
+};
 
 interface TruckFormProps {
   truck?: Truck;
@@ -11,70 +21,36 @@ interface TruckFormProps {
 }
 
 const TruckForm: React.FC<TruckFormProps> = ({ truck, onComplete }) => {
-  const [name, setName] = useState(truck?.name || '');
-  const [capacity, setCapacity] = useState(truck?.capacity.toString() || '');
-  const [speed, setSpeed] = useState(truck?.speed.toString() || '');
-  const [warehouseId, setWarehouseId] = useState(truck?.warehouseId || '');
+  // Obtenemos drivers y warehouses del store
+  const { addTruck, updateTruck, warehouses, drivers } = useDataStore();
   
-  const [errors, setErrors] = useState({
-    name: '',
-    capacity: '',
-    speed: '',
-    warehouseId: '',
+  // Inicializamos el formulario
+  const {
+    register,
+    handleSubmit,
+    control,
+    formState: { errors },
+  } = useForm<TruckFormData>({
+    defaultValues: {
+      name: truck?.name || '',
+      capacity: truck?.capacity || 0,
+      speed: truck?.speed || 0,
+      warehouseId: truck?.warehouseId || '',
+      currentDriverId: truck?.currentDriverId || '', // <--- Valor inicial del conductor
+    },
   });
-  
-  const { addTruck, updateTruck, warehouses } = useDataStore();
-  
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validate form
-    const newErrors = {
-      name: '',
-      capacity: '',
-      speed: '',
-      warehouseId: '',
-    };
-    let hasError = false;
-    
-    if (!name.trim()) {
-      newErrors.name = 'Name is required';
-      hasError = true;
-    }
-    
-    if (!capacity.trim()) {
-      newErrors.capacity = 'Capacity is required';
-      hasError = true;
-    } else if (isNaN(Number(capacity)) || Number(capacity) <= 0) {
-      newErrors.capacity = 'Capacity must be a positive number';
-      hasError = true;
-    }
-    
-    if (!speed.trim()) {
-      newErrors.speed = 'Speed is required';
-      hasError = true;
-    } else if (isNaN(Number(speed)) || Number(speed) <= 0) {
-      newErrors.speed = 'Speed must be a positive number';
-      hasError = true;
-    }
-    
-    if (!warehouseId) {
-      newErrors.warehouseId = 'Please select a warehouse';
-      hasError = true;
-    }
-    
-    if (hasError) {
-      setErrors(newErrors);
-      return;
-    }
-    
+
+  const onSubmitForm: SubmitHandler<TruckFormData> = (data) => {
+    // Preparamos los datos para el store
+    // El store se encargará de convertirlos a snake_case para Supabase
     const truckData = {
-      name,
-      capacity: Number(capacity),
-      speed: Number(speed),
-      warehouseId,
+      name: data.name,
+      capacity: Number(data.capacity),
+      speed: Number(data.speed),
+      warehouseId: data.warehouseId,
+      currentDriverId: data.currentDriverId || undefined, // Enviar undefined si está vacío
     };
-    
+
     if (truck) {
       updateTruck(truck.id, truckData);
     } else {
@@ -85,46 +61,75 @@ const TruckForm: React.FC<TruckFormProps> = ({ truck, onComplete }) => {
   };
   
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Input
-        label="Truck Name"
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        error={errors.name}
-        fullWidth
-        placeholder="Enter truck name/ID"
+    <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-4">
+      
+      {/* CAMPO NOMBRE */}
+      <Controller
+        name="name"
+        control={control}
+        rules={{ required: 'El nombre es obligatorio' }}
+        render={({ field, fieldState: { error } }) => (
+          <Input
+            {...field}
+            label="Truck Name"
+            error={error?.message}
+            fullWidth
+            placeholder="Enter truck name/ID"
+          />
+        )}
       />
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Input
-          label="Capacity"
-          type="number"
-          value={capacity}
-          onChange={(e) => setCapacity(e.target.value)}
-          error={errors.capacity}
-          fullWidth
-          placeholder="Enter capacity"
+        {/* CAMPO CAPACIDAD */}
+        <Controller
+          name="capacity"
+          control={control}
+          rules={{ 
+            required: 'Capacidad requerida', 
+            valueAsNumber: true,
+            min: { value: 1, message: 'Debe ser positiva' }
+          }}
+          render={({ field, fieldState: { error } }) => (
+            <Input
+              {...field}
+              type="number"
+              label="Capacity"
+              error={error?.message}
+              fullWidth
+              placeholder="Enter capacity"
+            />
+          )}
         />
         
-        <Input
-          label="Speed (km/h)"
-          type="number"
-          value={speed}
-          onChange={(e) => setSpeed(e.target.value)}
-          error={errors.speed}
-          fullWidth
-          placeholder="Enter average speed"
+        {/* CAMPO VELOCIDAD */}
+        <Controller
+          name="speed"
+          control={control}
+          rules={{ 
+            required: 'Velocidad requerida', 
+            valueAsNumber: true,
+            min: { value: 1, message: 'Debe ser positiva' }
+          }}
+          render={({ field, fieldState: { error } }) => (
+            <Input
+              {...field}
+              type="number"
+              label="Speed (km/h)"
+              error={error?.message}
+              fullWidth
+              placeholder="Enter average speed"
+            />
+          )}
         />
       </div>
       
+      {/* SELECTOR DE ALMACÉN */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Assigned Warehouse
         </label>
         <select
-          value={warehouseId}
-          onChange={(e) => setWarehouseId(e.target.value)}
+          {...register('warehouseId', { required: 'Selecciona un almacén' })}
           className={`
             block w-full px-4 py-2 bg-white border rounded-md shadow-sm 
             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
@@ -139,9 +144,31 @@ const TruckForm: React.FC<TruckFormProps> = ({ truck, onComplete }) => {
           ))}
         </select>
         {errors.warehouseId && (
-          <p className="mt-1 text-sm text-red-600">{errors.warehouseId}</p>
+          <p className="mt-1 text-sm text-red-600">{errors.warehouseId.message}</p>
         )}
       </div>
+
+      {/* --- SELECTOR DE CONDUCTOR (NUEVO) --- */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Assigned Driver
+        </label>
+        <select
+          {...register('currentDriverId')}
+          className="block w-full px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          <option value="">-- No Driver Assigned --</option>
+          {drivers.map((driver) => (
+            <option key={driver.id} value={driver.id}>
+              {driver.name} ({driver.status === 'active' ? 'Active' : 'Inactive'})
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-gray-500 mt-1">
+          Select who will be driving this truck.
+        </p>
+      </div>
+      {/* ------------------------------------- */}
       
       <div className="flex justify-end space-x-4 pt-4">
         <Button

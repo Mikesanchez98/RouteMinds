@@ -14,6 +14,15 @@ export interface Location {
   lng: number;                   // Longitud
 }
 
+//Interfaz para Conductores
+export interface Driver {
+  id: string;                    // ID único del conductor
+  name: string;                  // Nombre del conductor
+  license_number: string;         // Número de licencia de conducir
+  phone: string;                 // Número de teléfono
+  status: 'active' | 'inactive' | 'on_leave'; // Estado del conductor
+}
+
 // Interfaz para almacenes
 export interface Warehouse {
   id: string;                    // ID único del almacén
@@ -41,8 +50,11 @@ export interface Truck {
   id: string;                    // ID único del camión
   name: string;                  // Nombre o identificador del camión
   capacity: number;              // Capacidad de carga
-  speed: number;                 // Velocidad promedio en km/h
-  warehouseId: string;           // ID del almacén asignado
+  speed?: number;                 // Velocidad promedio en km/h
+  warehouseId?: string;           // ID del almacén asignado
+  warehouseName?: string;         // Nombre del almacén asignado
+  currentDriverId?: string;        // ID del conductor actual
+  currentDriverName?: string;      // Nombre del conductor actual
 }
 
 // Interfaz para rutas

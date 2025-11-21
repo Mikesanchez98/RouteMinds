@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Warehouse, Store, Truck, Route } from '../types';
+import { Warehouse, Store, Truck, Route, Driver } from '../types';
 import { supabase } from '../lib/supabase';
 
 interface DataState {
@@ -7,7 +7,7 @@ interface DataState {
   stores: Store[];
   trucks: Truck[];
   routes: Route[];
-
+  drivers: Driver[];
   isLoading?: boolean;
   error?: string | null;
   
@@ -30,6 +30,12 @@ interface DataState {
   addRoute: (route: Omit<Route, 'id'>) => void;
   updateRoute: (id: string, data: Partial<Route>) => void;
   deleteRoute: (id: string) => void;
+
+  // Drivers
+  fetchDrivers: () => Promise<void>;
+  addDriver: (driver: Omit<Driver, 'id'>) => Promise<void>;
+  updateDriver: (id: string, driver: Partial<Driver>) => Promise<void>;
+  deleteDriver: (id: string) => Promise<void>;
   
   // Generate optimized routes
   generateRoutes: () => void;
@@ -111,7 +117,82 @@ const useDataStore = create<DataState>((set, get) => ({
   stores: [],
   trucks: [],
   routes: [],
+  drivers: [],
   
+  fetchDrivers: async () => {
+    try {
+      const { data, error } = await supabase.from('drivers').select('*');
+      if (error) throw error;
+      set({ drivers: data as Driver[] });
+    } catch (error) {
+      console.error('Error fetching drivers:', error);
+    }
+  },
+
+  addDriver: async (driverData) => {
+    try {
+      const { data, error } = await supabase.from('drivers').insert(driverData).select().single();
+      if (error) throw error;
+      set((state) => ({ drivers: [...state.drivers, data as Driver] }));
+    } catch (error) {
+      console.error('Error adding driver:', error);
+    }
+  },
+
+  updateDriver: async (id, driverData) => {
+    try {
+      const { error } = await supabase.from('drivers').update(driverData).eq('id', id);
+      if (error) throw error;
+      // Recargamos para asegurar consistencia
+      get().fetchDrivers();
+    } catch (error) {
+      console.error('Error updating driver:', error);
+    }
+  },
+  
+  deleteDriver: async (id) => {
+    try {
+        const { error } = await supabase.from('drivers').delete().eq('id', id);
+        if (error) throw error;
+        set((state) => ({ drivers: state.drivers.filter((d) => d.id !== id) }));
+    } catch (error) {
+        console.error('Error deleting driver:', error);
+    }
+  },
+
+  // --- ACTUALIZA FETCH TRUCKS (Para traer el driver asignado) ---
+  fetchTrucks: async () => {
+      set({ isLoading: true });
+      try {
+        // Pedimos trucks Y el nombre del driver (join)
+        const { data, error } = await supabase
+          .from('trucks')
+          .select(`
+            *,
+            drivers ( name ) 
+          `); 
+          // Nota: asegúrate de que en Supabase la relación se llame 'drivers' 
+          // o usa la foreign key correcta.
+
+        if (error) throw error;
+
+        const formattedData = data?.map(truck => ({
+          id: truck.id,
+          name: truck.name,
+          capacity: truck.capacity,
+          warehouseId: truck.warehouse_id, 
+          // Mapeamos los nuevos campos
+          currentDriverId: truck.current_driver_id,
+          driverName: truck.drivers?.name || 'Sin Conductor',
+        })) || [];
+
+        set({ trucks: formattedData, isLoading: false });
+      } catch (error) {
+        console.error('Error fetching trucks:', error);
+        set({ error: 'Failed to load trucks', isLoading: false });
+      }
+  },
+
   fetchWarehouses: async () => {
     set({ isLoading: true }); //Estado isLoading añadido al store para indicar que se está cargando
     try{
@@ -156,42 +237,6 @@ const useDataStore = create<DataState>((set, get) => ({
       set({ error: 'Failed to load stores', isLoading: false });
     }
   },
-
-  fetchTrucks: async () => {
-      set({ isLoading: true });
-      try {
-        // 1. Corregimos el query (petición) a Supabase:
-        // Pedimos los campos del camión Y el 'name' de la tabla 'warehouses' relacionada.
-        const { data, error } = await supabase
-          .from('trucks')
-          .select(`
-            id,
-            name,
-            capacity,
-            speed,
-            warehouse_id,
-            warehouses ( name )
-          `);
-
-        if (error) throw error;
-
-        // 2. Corregimos el formateo de los datos:
-        // Mapeamos los datos de la BD a la "forma" que espera tu app.
-        const formattedData = data?.map(truck => ({
-          id: truck.id,
-          name: truck.name,
-          capacity: truck.capacity,
-          speed: truck.speed,
-          warehouseId: truck.warehouse_id, // <-- ¡La conversión clave! (de snake_case a camelCase)
-          warehouseName: truck.warehouses?.name || 'Sin asignar', // <-- Obtenemos el nombre para la tabla
-        })) || [];
-
-        set({ trucks: formattedData, isLoading: false });
-      } catch (error) {
-        console.error('Error fetching trucks:', error);
-        set({ error: 'Failed to load trucks', isLoading: false });
-      }
-    },
 
 // En src/store/dataStore.ts
 
