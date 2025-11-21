@@ -1,4 +1,3 @@
-// src/pages/dashboard/DashboardPage.tsx
 import React from 'react';
 import { Truck, Warehouse, Store, Route, BarChart4, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -7,9 +6,9 @@ import MapView from '../../components/map/MapView';
 import useDataStore from '../../store/dataStore';
 import useAuthStore from '../../store/authStore';
 import Spinner from '../../components/common/Spinner';
-
-// IMPORTANTE: El DatePicker
 import DatePicker from "react-datepicker";
+
+// (El CSS de datepicker ya está en App.tsx)
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
@@ -69,7 +68,7 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
       
-      {/* TARJETAS DE ESTADÍSTICAS (Resumido para ahorrar espacio, pero usa las tuyas) */}
+      {/* TARJETAS DE ESTADÍSTICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-5 flex items-center">
              <div className="bg-blue-100 p-3 rounded-full"><Warehouse className="h-6 w-6 text-blue-600"/></div>

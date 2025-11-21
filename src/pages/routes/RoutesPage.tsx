@@ -1,184 +1,183 @@
-import React, { useState } from 'react';
-import { Route, ArrowRight, Eye, Download, ChevronRight, ChevronDown } from 'lucide-react';
-import Button from '../../components/common/Button';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Route as RouteIcon, Calendar, Download } from 'lucide-react'; // <--- AÑADÍ Download
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+
+import MapView from '../../components/map/MapView';
+import RouteList from '../../components/dashboard/RouteList';
 import useDataStore from '../../store/dataStore';
+import Spinner from '../../components/common/Spinner';
+import Button from '../../components/common/Button'; // <--- Asegúrate de importar Button
 
 const RoutesPage: React.FC = () => {
-  const { warehouses, stores, trucks, routes } = useDataStore();
-  const [expandedRoute, setExpandedRoute] = useState<string | null>(null);
-  
-  const toggleRouteExpansion = (routeId: string) => {
-    if (expandedRoute === routeId) {
-      setExpandedRoute(null);
-    } else {
-      setExpandedRoute(routeId);
+  const { 
+    routes, 
+    warehouses, 
+    stores, 
+    trucks, // <--- Necesitamos trucks para el CSV
+    fetchRoutesByDate, 
+    fetchWarehouses, 
+    fetchStores, 
+    fetchTrucks,
+    isLoading 
+  } = useDataStore();
+
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(undefined);
+
+  // Cargar datos iniciales
+  useEffect(() => {
+    const loadData = async () => {
+      await Promise.all([
+        fetchWarehouses(),
+        fetchStores(),
+        fetchTrucks(),
+        fetchRoutesByDate(selectedDate)
+      ]);
+    };
+    loadData();
+  }, []);
+
+  // Manejar cambio de fecha
+  const handleDateChange = (date: Date | null) => {
+    if (date) {
+      setSelectedDate(date);
+      fetchRoutesByDate(date);
+      setSelectedRouteId(undefined);
     }
   };
-  
-  // Sort routes by warehouse name
-  const sortedRoutes = [...routes].sort((a, b) => {
-    const warehouseA = warehouses.find(w => w.id === a.warehouseId)?.name || '';
-    const warehouseB = warehouses.find(w => w.id === b.warehouseId)?.name || '';
-    return warehouseA.localeCompare(warehouseB);
-  });
-  
-  // Function to export routes as CSV
+
+  // --- FUNCIÓN DE EXPORTACIÓN CSV ---
   const exportRoutes = () => {
     const csvRows = [];
     
-    // Add header row
-    csvRows.push(['Warehouse', 'Truck', 'Stores', 'Distance (km)', 'Estimated Time (hours)'].join(','));
+    // Encabezados
+    csvRows.push(['Warehouse', 'Truck', 'Driver', 'Status', 'Stops', 'Distance (km)', 'Est. Time (min)'].join(','));
     
-    // Add data rows
-    sortedRoutes.forEach(route => {
+    // Filas de datos
+    routes.forEach(route => {
       const warehouse = warehouses.find(w => w.id === route.warehouseId)?.name || 'Unknown';
-      const truck = trucks.find(t => t.id === route.truckId)?.name || 'Unknown';
+      const truck = trucks.find(t => t.id === route.truckId);
+      const truckName = truck?.name || 'Unknown';
+      const driverName = truck?.driverName || 'Unassigned'; // Usamos el nombre del conductor si existe
       const storeCount = route.stores.length;
       
+      // Escapar comas en los nombres para no romper el CSV
+      const safeWarehouse = `"${warehouse}"`;
+      const safeTruck = `"${truckName}"`;
+      const safeDriver = `"${driverName}"`;
+
       csvRows.push([
-        warehouse,
-        truck,
+        safeWarehouse,
+        safeTruck,
+        safeDriver,
+        route.status,
         storeCount,
         route.distance.toFixed(2),
-        route.estimatedTime.toFixed(2)
+        route.estimatedTime.toFixed(0)
       ].join(','));
     });
     
-    // Create CSV content
+    // Crear y descargar archivo
     const csvContent = csvRows.join('\n');
-    
-    // Create download link
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', 'routes_summary.csv');
+    // Nombre del archivo con la fecha seleccionada
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    link.setAttribute('download', `routes_${dateStr}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
-  
+  // ----------------------------------
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Route Summaries</h1>
-          <p className="mt-1 text-gray-600">Overview of all optimized routes</p>
+    <div className="space-y-6 h-[calc(100vh-120px)] flex flex-col">
+      
+      {/* --- HEADER --- */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+        <div className="flex items-center mb-4 md:mb-0">
+          <div className="bg-purple-100 p-2 rounded-lg mr-3">
+            <RouteIcon className="h-6 w-6 text-purple-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Historial y Seguimiento</h1>
+            <p className="text-sm text-gray-500">Control operativo de rutas diarias</p>
+          </div>
         </div>
-        
-        <div className="mt-4 md:mt-0 flex space-x-3">
+
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          
+          {/* Selector de Fecha */}
+          <div className="flex items-center bg-gray-50 border border-gray-300 rounded-md px-3 py-2 shadow-sm">
+            <Calendar size={18} className="text-gray-500 mr-2" />
+            <DatePicker 
+                selected={selectedDate} 
+                onChange={handleDateChange} 
+                className="outline-none text-sm text-gray-700 w-28 bg-transparent cursor-pointer"
+                dateFormat="dd/MM/yyyy"
+                maxDate={new Date()}
+                placeholderText="Seleccionar fecha"
+            />
+          </div>
+
+          {/* Botón de Exportar */}
           <Button
             variant="outline"
+            size="sm"
             onClick={exportRoutes}
-            leftIcon={<Download size={18} />}
+            leftIcon={<Download size={16} />}
+            disabled={routes.length === 0} // Deshabilitar si no hay rutas
           >
             Export CSV
           </Button>
+
         </div>
       </div>
-      
-      {/* Route List */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-800">All Routes</h2>
-        </div>
+
+      {/* --- CONTENIDO PRINCIPAL --- */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
         
-        {routes.length === 0 ? (
-          <div className="p-6 text-center">
-            <p className="text-gray-500 mb-4">No routes have been generated yet.</p>
-            <Link to="/dashboard">
-              <Button>Generate Routes</Button>
-            </Link>
+        {/* COLUMNA IZQUIERDA: LISTA DE RUTAS */}
+        <div className="lg:col-span-1 bg-white rounded-lg shadow overflow-hidden flex flex-col h-full border border-gray-200">
+          <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <span className="font-semibold text-gray-700">Rutas del Día</span>
+            <span className="text-xs bg-white border border-gray-200 px-2 py-1 rounded-full text-gray-600 font-medium">
+              {routes.length} Total
+            </span>
           </div>
-        ) : (
-          <div className="divide-y divide-gray-200">
-            {sortedRoutes.map(route => {
-              const warehouse = warehouses.find(w => w.id === route.warehouseId);
-              const truck = trucks.find(t => t.id === route.truckId);
-              const isExpanded = expandedRoute === route.id;
-              
-              return (
-                <div key={route.id} className="p-0">
-                  <div 
-                    className="p-4 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => toggleRouteExpansion(route.id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        {isExpanded ? (
-                          <ChevronDown size={20} className="text-gray-500" />
-                        ) : (
-                          <ChevronRight size={20} className="text-gray-500" />
-                        )}
-                        <Route size={20} className="text-blue-600" />
-                        <div>
-                          <h3 className="font-medium text-gray-900">
-                            {warehouse?.name || 'Unknown Warehouse'}
-                          </h3>
-                          <p className="text-sm text-gray-500">
-                            Truck: {truck?.name || 'Unknown'} | Stores: {route.stores.length}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right">
-                        <p className="font-medium">{route.distance.toFixed(2)} km</p>
-                        <p className="text-sm text-gray-500">{route.estimatedTime.toFixed(2)} hours</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {isExpanded && (
-                    <div className="px-10 pb-4">
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <h4 className="font-medium mb-2">Stores on this route:</h4>
-                        <div className="space-y-2">
-                          {route.stores.map((storeId, index) => {
-                            const store = stores.find(s => s.id === storeId);
-                            if (!store) return null;
-                            
-                            return (
-                              <div key={store.id} className="flex items-center text-sm">
-                                <span className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-800 rounded-full mr-2">
-                                  {index + 1}
-                                </span>
-                                <span className="font-medium">{store.name}</span>
-                                <ArrowRight size={12} className="mx-2 text-gray-400" />
-                                <span className="text-gray-600">Demand: {store.demand}</span>
-                              </div>
-                            );
-                          })}
-                          
-                          {/* Return to warehouse */}
-                          <div className="flex items-center text-sm mt-2 pt-2 border-t border-gray-200">
-                            <span className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-800 rounded-full mr-2">
-                              {route.stores.length + 1}
-                            </span>
-                            <span className="font-medium">Return to {warehouse?.name}</span>
-                          </div>
-                        </div>
-                        
-                        <div className="mt-4 flex justify-end">
-                          <Link to={`/map?route=${route.id}`}>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              leftIcon={<Eye size={16} />}
-                            >
-                              View on Map
-                            </Button>
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          
+          <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50">
+            {isLoading ? (
+              <div className="flex justify-center items-center h-40">
+                <Spinner size={32} />
+              </div>
+            ) : (
+              <RouteList routes={routes} />
+            )}
           </div>
-        )}
+        </div>
+
+        {/* COLUMNA DERECHA: MAPA */}
+        <div className="lg:col-span-2 bg-white rounded-lg shadow overflow-hidden h-full relative border border-gray-200">
+          {isLoading && (
+            <div className="absolute inset-0 z-10 bg-white/80 flex items-center justify-center backdrop-blur-sm">
+                <Spinner size={48} />
+            </div>
+          )}
+          <div className="h-full w-full">
+            <MapView 
+                showRoutes={true}
+                showWarehouses={true}
+                showStores={true}
+                selectedRoute={selectedRouteId} 
+            />
+          </div>
+        </div>
+
       </div>
     </div>
   );

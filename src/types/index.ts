@@ -66,4 +66,7 @@ export interface Route {
   distance: number;              // Distancia total en kilómetros
   estimatedTime: number;         // Tiempo estimado en horas
   created: string;               // Fecha de creación
+  status: 'pending' | 'in_progress' | 'completed'; // Estado de la ruta
+  actualStartTime?: string;
+  actualEndTime?: string;          // Tiempos reales de inicio y fin (opcional)
 }

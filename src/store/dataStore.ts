@@ -30,6 +30,7 @@ interface DataState {
   addRoute: (route: Omit<Route, 'id'>) => void;
   updateRoute: (id: string, data: Partial<Route>) => void;
   deleteRoute: (id: string) => void;
+  updateRouteStatus: (id: string, status: Partial<Route>) => void;
 
   // Drivers
   fetchDrivers: () => Promise<void>;
@@ -118,6 +119,46 @@ const useDataStore = create<DataState>((set, get) => ({
   trucks: [],
   routes: [],
   drivers: [],
+
+  updateRouteStatus: async (id, status) => {
+    try {
+      const updates: any = { status };
+      
+      // Lógica automática de timestamps
+      const now = new Date().toISOString();
+      
+      if (status === 'in_progress') {
+        updates.actual_start_time = now;
+      } else if (status === 'completed') {
+        updates.actual_end_time = now;
+      }
+
+      // 1. Actualizar en Supabase
+      const { error } = await supabase
+        .from('routes')
+        .update(updates)
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // 2. Actualizar el estado local (Optimistic UI)
+      set((state) => ({
+        routes: state.routes.map((route) => 
+          route.id === id 
+            ? { 
+                ...route, 
+                status: status,
+                actualStartTime: status === 'in_progress' ? now : route.actualStartTime,
+                actualEndTime: status === 'completed' ? now : route.actualEndTime
+              } 
+            : route
+        ),
+      }));
+
+    } catch (error) {
+      console.error('Error updating route status:', error);
+    }
+  },
   
   fetchDrivers: async () => {
     try {
@@ -162,35 +203,35 @@ const useDataStore = create<DataState>((set, get) => ({
 
   // --- ACTUALIZA FETCH TRUCKS (Para traer el driver asignado) ---
   fetchTrucks: async () => {
-      set({ isLoading: true });
-      try {
-        // Pedimos trucks Y el nombre del driver (join)
-        const { data, error } = await supabase
-          .from('trucks')
-          .select(`
-            *,
-            drivers ( name ) 
-          `); 
-          // Nota: asegúrate de que en Supabase la relación se llame 'drivers' 
-          // o usa la foreign key correcta.
+    set({ isLoading: true });
+    try {
+      // Solicitamos todos los campos de trucks (*)
+      // Y buscamos el 'name' en la tabla 'drivers' relacionada por current_driver_id
+      const { data, error } = await supabase
+        .from('trucks')
+        .select(`
+          *,
+          driver:current_driver_id ( name )
+        `);
 
-        if (error) throw error;
+      if (error) throw error;
 
-        const formattedData = data?.map(truck => ({
-          id: truck.id,
-          name: truck.name,
-          capacity: truck.capacity,
-          warehouseId: truck.warehouse_id, 
-          // Mapeamos los nuevos campos
-          currentDriverId: truck.current_driver_id,
-          driverName: truck.drivers?.name || 'Sin Conductor',
-        })) || [];
+      const formattedData = data?.map((truck: any) => ({
+        id: truck.id,
+        name: truck.name,
+        capacity: truck.capacity,
+        warehouseId: truck.warehouse_id,
+        currentDriverId: truck.current_driver_id,
+        // AQUÍ ESTÁ LA CLAVE: Supabase devuelve un objeto o null
+        // Accedemos a truck.driver.name
+        driverName: truck.driver?.name || 'Sin Conductor', 
+      })) || [];
 
-        set({ trucks: formattedData, isLoading: false });
-      } catch (error) {
-        console.error('Error fetching trucks:', error);
-        set({ error: 'Failed to load trucks', isLoading: false });
-      }
+      set({ trucks: formattedData, isLoading: false });
+    } catch (error) {
+      console.error('Error fetching trucks:', error);
+      set({ error: 'Failed to load trucks', isLoading: false });
+    }
   },
 
   fetchWarehouses: async () => {
@@ -271,7 +312,10 @@ const useDataStore = create<DataState>((set, get) => ({
           stores: route.stores_sequence, // jsonb a array
           distance: route.distance,
           estimatedTime: route.estimated_time,
-          created: route.created_at
+          created: route.created_at,
+          status: route.status,
+          actualStartTime: route.actual_start_time,
+          actualEndTime: route.actual_end_time
         }));
 
         set({ routes: formattedRoutes, isLoading: false });
@@ -518,40 +562,29 @@ const useDataStore = create<DataState>((set, get) => ({
 
   // Camiones
   // Añadir camión
+  // Añadir camión
   addTruck: async (truckInput) => {
-    // Preparar datos para supabase
     const dbData = {
       name: truckInput.name,
       capacity: truckInput.capacity,
       speed: truckInput.speed,
-      warehouse_id: truckInput.warehouseId
+      warehouse_id: truckInput.warehouseId,
+      current_driver_id: truckInput.currentDriverId || null // Asegurar que se envíe
     };
 
     set({ isLoading: true, error: null });
     try {
-      // Insertamos en supabase y pedimos que devuelva el registro generado
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('trucks')
-        .insert(dbData)
-        .select() // Pide que devuelva lo insertado
-        .single(); // Esperamos solo un resultado
+        .insert(dbData);
 
       if (error) throw error;
 
-      // Formateamos la respuesta para que coincida con nuestro tipo Truck
-      const newTruck: Truck = {
-        id: data.id,
-        name: data.name,
-        capacity: data.capacity,
-        speed: data.speed,
-        warehouseId: data.warehouse_id
-      };
-
-      // Actualizamos el estado local añadiendo el nuevo camión
-      set((state) => ({
-        trucks: [...state.trucks, newTruck],
-        isLoading: false
-      }));
+      // --- CAMBIO CLAVE AQUÍ ---
+      // En lugar de construir el objeto manualmente, recargamos la lista.
+      // Esto trae el camión nuevo YA con el nombre del conductor resuelto.
+      await get().fetchTrucks(); 
+      
     } catch (error) {
       console.error('Error adding truck:', error);
       set({ error: 'Failed to add truck', isLoading: false });
@@ -559,41 +592,32 @@ const useDataStore = create<DataState>((set, get) => ({
   },
   
   // Actualizar camión
+  // Actualizar camión
   updateTruck: async (id, truckInput) => {
-    // Preparar datos para supabase
     const dbData = {
       name: truckInput.name,
       capacity: truckInput.capacity,
       speed: truckInput.speed,
-      warehouse_id: truckInput.warehouseId
+      warehouse_id: truckInput.warehouseId,
+      current_driver_id: truckInput.currentDriverId || null // Asegurar que se envíe
     };
+
+    // Filtramos undefined
+    Object.keys(dbData).forEach(key => (dbData as any)[key] === undefined && delete (dbData as any)[key]);
 
     set({ isLoading: true, error: null });
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('trucks')
         .update(dbData)
-        .eq('id', id)
-        .select()
-        .single();
+        .eq('id', id);
 
       if (error) throw error;
 
-      const updatedTruck: Truck = {
-        id: data.id,
-        name: data.name,
-        capacity: data.capacity,
-        speed: data.speed,
-        warehouseId: data.warehouse_id
-      };
+      // --- CAMBIO CLAVE AQUÍ ---
+      // Recargamos la lista para ver el cambio de nombre/conductor inmediatamente
+      await get().fetchTrucks();
 
-      // Actualizamos el estado local reemplazando el camión modificado
-      set((state) => ({
-        trucks: state.trucks.map((t) =>
-          t.id === id ? updatedTruck : t
-        ),
-        isLoading: false
-      }));
     } catch (error) {
       console.error('Error updating truck:', error);
       set({ error: 'Failed to update truck', isLoading: false });
@@ -648,40 +672,62 @@ const useDataStore = create<DataState>((set, get) => ({
   
   // Generate optimized routes
   generateRoutes: async () => {
-    // 1. Obtiene los datos actuales del estado (leídos de la BD)
+    // 1. Obtiene los datos actuales del estado
     const { warehouses, stores, trucks } = get();
 
-    if (warehouses.length === 0 || stores.length === 0 || trucks.length === 0) {
-      console.warn("Se necesitan almacenes, tiendas y camiones para generar rutas.");
-      set({ error: "No hay suficientes datos para generar rutas.", routes: [] });
+    // --- FILTRO: Solo usamos camiones con conductor asignado ---
+    const availableTrucks = trucks.filter(t => t.currentDriverId);
+
+    // --- VALIDACIONES ---
+    if (warehouses.length === 0 || stores.length === 0) {
+      console.warn("Faltan almacenes o tiendas.");
+      set({ error: "Faltan datos de almacenes o tiendas.", routes: [] });
       return;
     }
 
-    set({ isLoading: true, error: null, routes: [] }); // Limpia rutas viejas y muestra carga
+    // Validación específica para conductores
+    if (availableTrucks.length === 0) {
+      set({ 
+        error: "No hay camiones disponibles con conductor asignado. Ve a 'Gestión' para asignar conductores.", 
+        routes: [] 
+      });
+      return;
+    }
+
+    set({ isLoading: true, error: null, routes: [] }); // Inicia carga
 
     try {
-      // 2. ¡Llama a la Edge Function por su nombre!
+      // 2. Llama a la Edge Function enviando SOLO los camiones disponibles
       const { data, error } = await supabase.functions.invoke('solve-mdvrp', {
-        // 3. Envía los datos de la BD como 'body'
-        body: JSON.stringify({ warehouses, stores, trucks }),
+        body: JSON.stringify({ 
+          warehouses, 
+          stores, 
+          trucks: availableTrucks // <--- Enviamos el array filtrado
+        }),
       });
 
       if (error) {
-        throw error; // Lanza el error si Supabase falla
+        throw error;
       }
 
-      // 4. Recibe las rutas del algoritmo
+      // 3. Recibe las rutas del algoritmo
       if (data && data.routes) {
-        // 5. ¡Guarda las rutas REALES en el estado!
+        
+        // --- UX: RETRASO ARTIFICIAL ---
+        // Esperamos 1.5 segundos para que el usuario vea el spinner
+        // y dar tiempo al navegador para procesar los datos antes de pintar.
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
+
+        // 4. Guardamos las rutas y quitamos el spinner
         set({ routes: data.routes, isLoading: false });
       } else {
         throw new Error('Respuesta inválida de la función de rutas.');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al generar rutas:', error);
       set({
-        error: `Error al generar rutas: ${error.message}`,
+        error: `Error al generar rutas: ${error.message || 'Error desconocido'}`,
         isLoading: false,
       });
     }
