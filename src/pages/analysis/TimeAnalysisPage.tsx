@@ -1,240 +1,171 @@
-import React from 'react';
-import { Clock, BarChart4, Truck } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import React, { useEffect, useMemo } from 'react';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell 
+} from 'recharts';
+import { Clock, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
 import useDataStore from '../../store/dataStore';
 
 const TimeAnalysisPage: React.FC = () => {
-  const { warehouses, stores, trucks, routes } = useDataStore();
-  
-  // Prepare data for warehouse distribution chart
-  const warehouseData = warehouses.map(warehouse => {
-    const warehouseRoutes = routes.filter(r => r.warehouseId === warehouse.id);
-    const totalTime = warehouseRoutes.reduce((sum, route) => sum + route.estimatedTime, 0);
-    const totalDistance = warehouseRoutes.reduce((sum, route) => sum + route.distance, 0);
-    const storeCount = new Set(warehouseRoutes.flatMap(r => r.stores)).size;
+  const { routes, fetchRoutesByDate } = useDataStore();
+
+  // Cargar rutas (puedes ajustar para cargar un rango más amplio si quieres)
+  useEffect(() => {
+    fetchRoutesByDate(new Date());
+  }, []);
+
+  // --- CÁLCULOS MATEMÁTICOS ---
+  const analysisData = useMemo(() => {
+    // Filtramos solo rutas completadas para el análisis real
+    const completedRoutes = routes.filter(r => r.status === 'completed' && r.actualStartTime && r.actualEndTime);
+
+    const chartData = completedRoutes.map(r => {
+      const start = new Date(r.actualStartTime!).getTime();
+      const end = new Date(r.actualEndTime!).getTime();
+      const durationMinutes = (end - start) / (1000 * 60); // De milisegundos a minutos
+
+      return {
+        name: `Ruta ${r.id.substring(0, 4)}`, // ID corto
+        Estimado: Math.round(r.estimatedTime), // Tu algoritmo ya lo da en minutos? Asumo que sí.
+        Real: Math.round(durationMinutes),
+        delta: Math.round(durationMinutes - r.estimatedTime)
+      };
+    });
+
+    // KPIs
+    const totalRoutes = completedRoutes.length;
+    const delayedRoutes = chartData.filter(d => d.Real > d.Estimado * 1.1).length; // 10% de margen
+    const onTimeRoutes = totalRoutes - delayedRoutes;
     
-    return {
-      name: warehouse.name,
-      time: parseFloat(totalTime.toFixed(2)),
-      distance: parseFloat(totalDistance.toFixed(2)),
-      stores: storeCount,
-    };
-  });
-  
-  // Prepare data for truck utilization chart
-  const truckData = trucks.map(truck => {
-    const truckRoutes = routes.filter(r => r.truckId === truck.id);
-    const totalTime = truckRoutes.reduce((sum, route) => sum + route.estimatedTime, 0);
-    const totalDistance = truckRoutes.reduce((sum, route) => sum + route.distance, 0);
-    const storeCount = new Set(truckRoutes.flatMap(r => r.stores)).size;
-    const warehouse = warehouses.find(w => w.id === truck.warehouseId);
-    
-    return {
-      name: truck.name,
-      warehouse: warehouse?.name || 'Unknown',
-      time: parseFloat(totalTime.toFixed(2)),
-      distance: parseFloat(totalDistance.toFixed(2)),
-      stores: storeCount,
-    };
-  });
-  
-  // Prepare data for pie chart (stores per warehouse)
-  const storeDistributionData = warehouses.map(warehouse => {
-    const warehouseRoutes = routes.filter(r => r.warehouseId === warehouse.id);
-    const storeCount = new Set(warehouseRoutes.flatMap(r => r.stores)).size;
-    
-    return {
-      name: warehouse.name,
-      value: storeCount,
-    };
-  });
-  
-  // Colors for pie chart
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
-  
-  // Calculate overall statistics
-  const totalRoutes = routes.length;
-  const totalDistance = routes.reduce((sum, route) => sum + route.distance, 0);
-  const totalTime = routes.reduce((sum, route) => sum + route.estimatedTime, 0);
-  const averageTimePerRoute = totalRoutes > 0 ? totalTime / totalRoutes : 0;
-  const averageStoresPerRoute = totalRoutes > 0 
-    ? routes.reduce((sum, route) => sum + route.stores.length, 0) / totalRoutes 
-    : 0;
-  
+    // Eficiencia promedio (Si tarda menos del estimado es > 100%, si tarda más es < 100%)
+    // Pero usualmente queremos saber la desviación.
+    const avgDeviation = totalRoutes > 0 
+      ? Math.round(chartData.reduce((acc, curr) => acc + curr.delta, 0) / totalRoutes)
+      : 0;
+
+    return { chartData, totalRoutes, delayedRoutes, onTimeRoutes, avgDeviation };
+  }, [routes]);
+
+  // Colores para la gráfica de pastel
+  const COLORS = ['#10B981', '#EF4444']; // Verde, Rojo
+
+  if (analysisData.totalRoutes === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-gray-500">
+        <Clock size={64} className="mb-4 text-gray-300" />
+        <h2 className="text-xl font-semibold">No hay datos suficientes</h2>
+        <p>Necesitas completar rutas (Finalizar) para ver el análisis de tiempos.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-10">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Time Analysis</h1>
-        <p className="mt-1 text-gray-600">Analyze route timing and performance</p>
+        <h1 className="text-2xl font-bold text-gray-900">Análisis de Tiempos</h1>
+        <p className="text-gray-600">Comparativa de rendimiento: Algoritmo vs Realidad</p>
       </div>
-      
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-blue-100 rounded-full p-3">
-              <BarChart4 className="h-6 w-6 text-blue-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Total Routes</p>
-              <p className="text-2xl font-bold text-gray-800">{totalRoutes}</p>
-            </div>
+
+      {/* --- TARJETAS DE KPIs --- */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex items-center">
+          <div className="p-3 bg-blue-100 rounded-full mr-4">
+            <TrendingUp className="text-blue-600" size={24} />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">Rutas Analizadas</p>
+            <h3 className="text-2xl font-bold text-gray-900">{analysisData.totalRoutes}</h3>
           </div>
         </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex items-center">
+          <div className={`p-3 rounded-full mr-4 ${analysisData.avgDeviation > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
+            <Clock className={analysisData.avgDeviation > 0 ? 'text-red-600' : 'text-green-600'} size={24} />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">Desviación Promedio</p>
+            <h3 className="text-2xl font-bold text-gray-900">
+              {analysisData.avgDeviation > 0 ? '+' : ''}{analysisData.avgDeviation} min
+            </h3>
+            <p className="text-xs text-gray-400">Diferencia vs Estimado</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex items-center">
+          <div className="p-3 bg-purple-100 rounded-full mr-4">
+            <CheckCircle className="text-purple-600" size={24} />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium">Tasa de Puntualidad</p>
+            <h3 className="text-2xl font-bold text-gray-900">
+              {Math.round((analysisData.onTimeRoutes / analysisData.totalRoutes) * 100)}%
+            </h3>
+          </div>
+        </div>
+      </div>
+
+      {/* --- GRÁFICAS --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-green-100 rounded-full p-3">
-              <Clock className="h-6 w-6 text-green-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Total Time</p>
-              <p className="text-2xl font-bold text-gray-800">{totalTime.toFixed(2)} h</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-orange-100 rounded-full p-3">
-              <Truck className="h-6 w-6 text-orange-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Total Distance</p>
-              <p className="text-2xl font-bold text-gray-800">{totalDistance.toFixed(2)} km</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 bg-purple-100 rounded-full p-3">
-              <Clock className="h-6 w-6 text-purple-600" />
-            </div>
-            <div className="ml-5">
-              <p className="text-gray-500 text-sm font-medium">Avg. Time/Route</p>
-              <p className="text-2xl font-bold text-gray-800">{averageTimePerRoute.toFixed(2)} h</p>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Warehouse Distribution Chart */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-800">Warehouse Time Distribution</h2>
-        </div>
-        <div className="p-6 h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={warehouseData}
-              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis yAxisId="left" orientation="left" stroke="#8884d8" />
-              <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" />
-              <Tooltip />
-              <Legend />
-              <Bar yAxisId="left" dataKey="time" name="Time (hours)" fill="#8884d8" />
-              <Bar yAxisId="right" dataKey="distance" name="Distance (km)" fill="#82ca9d" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-      
-      {/* Truck Utilization Chart */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-800">Truck Utilization</h2>
-        </div>
-        <div className="p-6 h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={truckData}
-              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="time" name="Time (hours)" fill="#0088FE" />
-              <Bar dataKey="stores" name="Stores Visited" fill="#00C49F" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-      
-      {/* Store Distribution Pie Chart */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-800">Store Distribution by Warehouse</h2>
-        </div>
-        <div className="p-6 h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={storeDistributionData}
-                cx="50%"
-                cy="50%"
-                labelLine={true}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
+        {/* GRÁFICA DE BARRAS (PRINCIPAL) */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-800 mb-6">Comparativa: Estimado vs Real (Minutos)</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={analysisData.chartData}
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               >
-                {storeDistributionData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-      
-      {/* Key Insights */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-800">Key Insights</h2>
-        </div>
-        <div className="p-6">
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-medium text-gray-900">Route Efficiency</h3>
-              <p className="text-gray-700">
-                On average, each route visits {averageStoresPerRoute.toFixed(1)} stores and takes {averageTimePerRoute.toFixed(2)} hours to complete.
-              </p>
-            </div>
-            
-            {warehouseData.length > 0 && (
-              <div>
-                <h3 className="font-medium text-gray-900">Warehouse Comparison</h3>
-                <p className="text-gray-700">
-                  {warehouseData.sort((a, b) => b.time - a.time)[0].name} has the highest total delivery time at {warehouseData.sort((a, b) => b.time - a.time)[0].time} hours.
-                </p>
-              </div>
-            )}
-            
-            {truckData.length > 0 && (
-              <div>
-                <h3 className="font-medium text-gray-900">Truck Utilization</h3>
-                <p className="text-gray-700">
-                  {truckData.sort((a, b) => b.stores - a.stores)[0].name} is serving the most stores ({truckData.sort((a, b) => b.stores - a.stores)[0].stores}) among all trucks.
-                </p>
-              </div>
-            )}
-            
-            <div>
-              <h3 className="font-medium text-gray-900">Time Optimization Opportunities</h3>
-              <p className="text-gray-700">
-                Adjusting truck assignments or optimizing store groupings could potentially reduce total delivery time.
-              </p>
-            </div>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Legend />
+                <Bar dataKey="Estimado" fill="#93C5FD" name="Tiempo Estimado" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Real" fill="#2563EB" name="Tiempo Real" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
+
+        {/* GRÁFICA DE PASTEL (ESTADO) */}
+        <div className="lg:col-span-1 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-800 mb-6">Puntualidad</h3>
+          <div className="h-64 flex justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'A Tiempo', value: analysisData.onTimeRoutes },
+                    { name: 'Retrasado', value: analysisData.delayedRoutes },
+                  ]}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {/* A Tiempo (Verde), Retrasado (Rojo) */}
+                  <Cell key="cell-0" fill={COLORS[0]} />
+                  <Cell key="cell-1" fill={COLORS[1]} />
+                </Pie>
+                <Tooltip />
+                <Legend verticalAlign="bottom" height={36}/>
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-4 text-center text-sm text-gray-500">
+            <p className="flex items-center justify-center gap-2">
+              <AlertTriangle size={16} className="text-red-500" />
+              {analysisData.delayedRoutes} rutas excedieron el estimado (+10%)
+            </p>
+          </div>
+        </div>
+
       </div>
     </div>
   );

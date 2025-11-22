@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Route as RouteIcon, Calendar, Download } from 'lucide-react'; // <--- AÑADÍ Download
+import { Route as RouteIcon, Calendar, Download } from 'lucide-react';
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 
@@ -7,14 +7,14 @@ import MapView from '../../components/map/MapView';
 import RouteList from '../../components/dashboard/RouteList';
 import useDataStore from '../../store/dataStore';
 import Spinner from '../../components/common/Spinner';
-import Button from '../../components/common/Button'; // <--- Asegúrate de importar Button
+import Button from '../../components/common/Button';
 
 const RoutesPage: React.FC = () => {
   const { 
     routes, 
     warehouses, 
     stores, 
-    trucks, // <--- Necesitamos trucks para el CSV
+    trucks, 
     fetchRoutesByDate, 
     fetchWarehouses, 
     fetchStores, 
@@ -23,6 +23,7 @@ const RoutesPage: React.FC = () => {
   } = useDataStore();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
+  // ESTE ES EL ESTADO QUE CONTROLA QUÉ SE PINTA EN EL MAPA
   const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(undefined);
 
   // Cargar datos iniciales
@@ -43,26 +44,22 @@ const RoutesPage: React.FC = () => {
     if (date) {
       setSelectedDate(date);
       fetchRoutesByDate(date);
-      setSelectedRouteId(undefined);
+      setSelectedRouteId(undefined); // Limpiar selección al cambiar fecha
     }
   };
 
-  // --- FUNCIÓN DE EXPORTACIÓN CSV ---
+  // --- EXPORTACIÓN CSV ---
   const exportRoutes = () => {
     const csvRows = [];
-    
-    // Encabezados
     csvRows.push(['Warehouse', 'Truck', 'Driver', 'Status', 'Stops', 'Distance (km)', 'Est. Time (min)'].join(','));
     
-    // Filas de datos
     routes.forEach(route => {
       const warehouse = warehouses.find(w => w.id === route.warehouseId)?.name || 'Unknown';
       const truck = trucks.find(t => t.id === route.truckId);
       const truckName = truck?.name || 'Unknown';
-      const driverName = truck?.driverName || 'Unassigned'; // Usamos el nombre del conductor si existe
-      const storeCount = route.stores.length;
+      const driverName = truck?.driverName || 'Unassigned';
+      const storeCount = route.stores?.length || 0;
       
-      // Escapar comas en los nombres para no romper el CSV
       const safeWarehouse = `"${warehouse}"`;
       const safeTruck = `"${truckName}"`;
       const safeDriver = `"${driverName}"`;
@@ -78,13 +75,11 @@ const RoutesPage: React.FC = () => {
       ].join(','));
     });
     
-    // Crear y descargar archivo
     const csvContent = csvRows.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    // Nombre del archivo con la fecha seleccionada
     const dateStr = selectedDate.toISOString().split('T')[0];
     link.setAttribute('download', `routes_${dateStr}.csv`);
     link.style.visibility = 'hidden';
@@ -92,7 +87,6 @@ const RoutesPage: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
-  // ----------------------------------
 
   return (
     <div className="space-y-6 h-[calc(100vh-120px)] flex flex-col">
@@ -110,8 +104,6 @@ const RoutesPage: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3">
-          
-          {/* Selector de Fecha */}
           <div className="flex items-center bg-gray-50 border border-gray-300 rounded-md px-3 py-2 shadow-sm">
             <Calendar size={18} className="text-gray-500 mr-2" />
             <DatePicker 
@@ -124,17 +116,15 @@ const RoutesPage: React.FC = () => {
             />
           </div>
 
-          {/* Botón de Exportar */}
           <Button
             variant="outline"
             size="sm"
             onClick={exportRoutes}
             leftIcon={<Download size={16} />}
-            disabled={routes.length === 0} // Deshabilitar si no hay rutas
+            disabled={routes.length === 0}
           >
             Export CSV
           </Button>
-
         </div>
       </div>
 
@@ -156,7 +146,12 @@ const RoutesPage: React.FC = () => {
                 <Spinner size={32} />
               </div>
             ) : (
-              <RouteList routes={routes} />
+              // --- AQUÍ CONECTAMOS LA LISTA CON EL ESTADO ---
+              <RouteList 
+                routes={routes} 
+                onSelectRoute={(id) => setSelectedRouteId(id)} // Al hacer click, actualiza el estado
+                selectedRouteId={selectedRouteId} // Pasa el estado para saber cuál resaltar
+              />
             )}
           </div>
         </div>
@@ -169,6 +164,7 @@ const RoutesPage: React.FC = () => {
             </div>
           )}
           <div className="h-full w-full">
+            {/* El mapa recibe el ID seleccionado y se encarga de pintarlo */}
             <MapView 
                 showRoutes={true}
                 showWarehouses={true}

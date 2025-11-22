@@ -8,17 +8,14 @@ import useAuthStore from '../../store/authStore';
 import Spinner from '../../components/common/Spinner';
 import DatePicker from "react-datepicker";
 
-// (El CSS de datepicker ya está en App.tsx)
-
 const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
   const { warehouses, stores, trucks, routes, generateRoutes, fetchRoutesByDate, isLoading } = useDataStore();
 
-  // ESTADOS PARA LOS FILTROS
+  // ESTADOS PARA LOS FILTROS (Eliminé showRoutes)
   const [showWarehouses, setShowWarehouses] = React.useState(true);
   const [showStores, setShowStores] = React.useState(true);
-  const [showRoutes, setShowRoutes] = React.useState(true);
-
+  
   // ESTADO PARA LA FECHA
   const [selectedDate, setSelectedDate] = React.useState(new Date());
 
@@ -93,7 +90,7 @@ const DashboardPage: React.FC = () => {
         <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
           <h2 className="text-lg font-medium text-gray-800">Network Overview</h2>
           
-          {/* CHECKBOXES DE FILTROS */}
+          {/* CHECKBOXES DE FILTROS (Solo Almacenes y Tiendas) */}
           <div className="flex space-x-4 text-sm bg-gray-50 px-3 py-1 rounded-md">
             <label className="flex items-center space-x-2 cursor-pointer hover:opacity-80">
               <input type="checkbox" checked={showWarehouses} onChange={(e) => setShowWarehouses(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
@@ -103,19 +100,15 @@ const DashboardPage: React.FC = () => {
               <input type="checkbox" checked={showStores} onChange={(e) => setShowStores(e.target.checked)} className="rounded text-orange-600 focus:ring-orange-500" />
               <span className="text-gray-700 font-medium">Tiendas</span>
             </label>
-            <label className="flex items-center space-x-2 cursor-pointer hover:opacity-80">
-              <input type="checkbox" checked={showRoutes} onChange={(e) => setShowRoutes(e.target.checked)} className="rounded text-purple-600 focus:ring-purple-500" />
-              <span className="text-gray-700 font-medium">Rutas</span>
-            </label>
           </div>
         </div>
         
         <div className="h-[400px]">
-          {/* Pasamos los estados al componente MapView */}
+          {/* Pasamos showRoutes en false para limpiar la vista */}
           <MapView 
             showWarehouses={showWarehouses}
             showStores={showStores}
-            showRoutes={showRoutes}
+            showRoutes={false} 
           />
         </div>
       </div>

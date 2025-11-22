@@ -1,125 +1,140 @@
-import React, { useState } from 'react';
-import { Map, Filter } from 'lucide-react';
-import Button from '../../components/common/Button';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Filter, Map as MapIcon } from 'lucide-react';
 import MapView from '../../components/map/MapView';
 import useDataStore from '../../store/dataStore';
+import Spinner from '../../components/common/Spinner';
 
 const MapPage: React.FC = () => {
-  const { warehouses, stores, routes } = useDataStore();
-  const [selectedRoute, setSelectedRoute] = useState<string | undefined>(undefined);
-  const [showFilters, setShowFilters] = useState(false);
+  const [searchParams] = useSearchParams();
+  const routeIdFromUrl = searchParams.get('route');
   
+  const { 
+    warehouses, 
+    stores, 
+    routes, 
+    fetchWarehouses, 
+    fetchStores, 
+    fetchTrucks, 
+    fetchRoutesByDate,
+    isLoading 
+  } = useDataStore();
+
+  // Filtros locales
+  const [showWarehouses, setShowWarehouses] = useState(true);
+  const [showStores, setShowStores] = useState(true);
+  const [showRoutes, setShowRoutes] = useState(true);
+  
+  // Ruta seleccionada
+  const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(
+    routeIdFromUrl || undefined
+  );
+
+  // Cargar datos al inicio
+  useEffect(() => {
+    const loadData = async () => {
+      // Cargamos rutas de hoy por defecto si no hay fecha especificada
+      await Promise.all([
+        fetchWarehouses(),
+        fetchStores(),
+        fetchTrucks(),
+        fetchRoutesByDate(new Date())
+      ]);
+    };
+    loadData();
+  }, []);
+
+  // Sincronizar URL con estado local si cambia
+  useEffect(() => {
+    if (routeIdFromUrl) {
+      setSelectedRouteId(routeIdFromUrl);
+    }
+  }, [routeIdFromUrl]);
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Map Visualization</h1>
-          <p className="mt-1 text-gray-600">View your network and routes</p>
+    <div className="h-[calc(100vh-100px)] flex flex-col space-y-4">
+      
+      {/* Header y Filtros */}
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="flex items-center">
+          <div className="bg-blue-100 p-2 rounded-lg mr-3">
+            <MapIcon className="h-6 w-6 text-blue-600" />
+          </div>
+          <h1 className="text-xl font-bold text-gray-900">Mapa Completo</h1>
+        </div>
+
+        {/* Controles de Filtro */}
+        <div className="flex items-center space-x-4 bg-gray-50 px-3 py-2 rounded-md border border-gray-200">
+          <Filter size={16} className="text-gray-500 mr-2" />
+          
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input 
+              type="checkbox" 
+              checked={showWarehouses} 
+              onChange={(e) => setShowWarehouses(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-blue-500" 
+            />
+            <span className="text-sm text-gray-700">Almacenes</span>
+          </label>
+
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input 
+              type="checkbox" 
+              checked={showStores} 
+              onChange={(e) => setShowStores(e.target.checked)}
+              className="rounded text-orange-600 focus:ring-orange-500" 
+            />
+            <span className="text-sm text-gray-700">Tiendas</span>
+          </label>
+
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input 
+              type="checkbox" 
+              checked={showRoutes} 
+              onChange={(e) => setShowRoutes(e.target.checked)}
+              className="rounded text-purple-600 focus:ring-purple-500" 
+            />
+            <span className="text-sm text-gray-700">Rutas</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Contenedor del Mapa */}
+      <div className="flex-1 bg-white rounded-lg shadow overflow-hidden relative border border-gray-200">
+        {isLoading && (
+          <div className="absolute inset-0 z-20 bg-white/80 flex items-center justify-center backdrop-blur-sm">
+            <Spinner size={48} />
+          </div>
+        )}
+        
+        <div className="h-full w-full">
+          <MapView 
+            showWarehouses={showWarehouses}
+            showStores={showStores}
+            showRoutes={showRoutes}
+            selectedRoute={selectedRouteId}
+          />
         </div>
         
-        <div className="mt-4 md:mt-0">
-          <Button
-            variant="outline"
-            onClick={() => setShowFilters(!showFilters)}
-            leftIcon={<Filter size={18} />}
-          >
-            {showFilters ? 'Hide Filters' : 'Show Filters'}
-          </Button>
-        </div>
-      </div>
-      
-      {/* Filters */}
-      {showFilters && (
-        <div className="bg-white p-4 rounded-lg shadow-md mb-4">
-          <h3 className="text-md font-medium text-gray-700 mb-3">Filter Routes</h3>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Select Route
-            </label>
-            <select
-              value={selectedRoute || ''}
-              onChange={(e) => setSelectedRoute(e.target.value || undefined)}
-              className="block w-full px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        {/* Selector rápido de rutas superpuesto (Opcional) */}
+        {showRoutes && routes.length > 0 && (
+          <div className="absolute top-4 right-4 z-[400] bg-white p-2 rounded-md shadow-lg border border-gray-200 max-w-xs">
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase px-1">Seleccionar Ruta</p>
+            <select 
+              className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              value={selectedRouteId || ''}
+              onChange={(e) => setSelectedRouteId(e.target.value || undefined)}
             >
-              <option value="">All Routes</option>
-              {routes.map((route) => {
-                // Find warehouse name
-                const warehouse = warehouses.find(w => w.id === route.warehouseId);
-                
-                return (
-                  <option key={route.id} value={route.id}>
-                    {warehouse?.name || 'Unknown'} - {route.stores.length} stores ({route.distance.toFixed(1)} km)
-                  </option>
-                );
-              })}
+              <option value="">-- Ver todas (Puede ser lento) --</option>
+              {routes.map(r => (
+                <option key={r.id} value={r.id}>
+                  Ruta {r.id.substring(0, 6)} ({r.status})
+                </option>
+              ))}
             </select>
           </div>
-          
-          <div className="mt-4 text-sm text-gray-600">
-            <div className="flex items-center space-x-2 mb-2">
-              <div className="w-4 h-4 bg-blue-500 rounded-full"></div>
-              <span>Warehouses: {warehouses.length}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-red-500 rounded-full"></div>
-              <span>Stores: {stores.length}</span>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Map Container */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center">
-          <Map size={20} className="text-gray-500 mr-2" />
-          <h2 className="text-lg font-medium text-gray-800">Network Map</h2>
-        </div>
-        <div className="h-[600px]">
-          <MapView showRoutes={true} selectedRoute={selectedRoute} />
-        </div>
+        )}
       </div>
-      
-      {/* Route Information */}
-      {selectedRoute && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-medium text-gray-800 mb-4">Route Details</h3>
-          {routes.filter(r => r.id === selectedRoute).map(route => {
-            const warehouse = warehouses.find(w => w.id === route.warehouseId);
-            const routeStores = route.stores.map(id => stores.find(s => s.id === id)).filter(Boolean);
-            
-            return (
-              <div key={route.id}>
-                <p className="mb-2">
-                  <span className="font-medium">Warehouse:</span> {warehouse?.name || 'Unknown'}
-                </p>
-                <p className="mb-2">
-                  <span className="font-medium">Total Distance:</span> {route.distance.toFixed(2)} km
-                </p>
-                <p className="mb-2">
-                  <span className="font-medium">Estimated Time:</span> {route.estimatedTime.toFixed(2)} hours
-                </p>
-                <p className="mb-2">
-                  <span className="font-medium">Stores Visited:</span> {routeStores.length}
-                </p>
-                
-                {routeStores.length > 0 && (
-                  <div className="mt-4">
-                    <h4 className="font-medium mb-2">Store Sequence:</h4>
-                    <ol className="list-decimal list-inside space-y-1">
-                      {routeStores.map((store, index) => (
-                        <li key={store?.id} className="text-sm text-gray-700">
-                          {store?.name} (Demand: {store?.demand})
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 };
