@@ -23,10 +23,12 @@ const RoutesPage: React.FC = () => {
   } = useDataStore();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
-  // ESTE ES EL ESTADO QUE CONTROLA QUÉ SE PINTA EN EL MAPA
   const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(undefined);
+  
+  // Estado local para el spinner de "Cargando ruta..." en el mapa
+  const [isSelectingRoute, setIsSelectingRoute] = useState(false);
 
-  // Cargar datos iniciales
+  // Cargar datos iniciales al entrar a la página
   useEffect(() => {
     const loadData = async () => {
       await Promise.all([
@@ -44,9 +46,30 @@ const RoutesPage: React.FC = () => {
     if (date) {
       setSelectedDate(date);
       fetchRoutesByDate(date);
-      setSelectedRouteId(undefined); // Limpiar selección al cambiar fecha
+      setSelectedRouteId(undefined); // Limpiar selección al cambiar de día
     }
   };
+
+  // Manejar selección de ruta (Click en la tarjeta)
+  const handleRouteSelect = (id: string) => {
+    if (selectedRouteId === id) return; // Si es la misma, no hacer nada
+
+    setIsSelectingRoute(true); // 1. Activar spinner
+    setSelectedRouteId(id);    // 2. Cambiar ruta (esto dispara el useEffect de abajo)
+  };
+
+  // Efecto para apagar el spinner DESPUÉS de que la ruta ha cambiado
+  useEffect(() => {
+    if (isSelectingRoute) {
+      // Mantenemos el spinner por 1 segundo para dar tiempo al mapa de Leaflet a procesar
+      // y evitar que se vea el cambio brusco o vacío.
+      const timer = setTimeout(() => {
+        setIsSelectingRoute(false);
+      }, 1000); 
+      return () => clearTimeout(timer);
+    }
+  }, [selectedRouteId]); 
+
 
   // --- EXPORTACIÓN CSV ---
   const exportRoutes = () => {
@@ -60,6 +83,7 @@ const RoutesPage: React.FC = () => {
       const driverName = truck?.driverName || 'Unassigned';
       const storeCount = route.stores?.length || 0;
       
+      // Comillas para evitar errores con comas en los nombres
       const safeWarehouse = `"${warehouse}"`;
       const safeTruck = `"${truckName}"`;
       const safeDriver = `"${driverName}"`;
@@ -104,6 +128,7 @@ const RoutesPage: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3">
+          {/* Selector de Fecha */}
           <div className="flex items-center bg-gray-50 border border-gray-300 rounded-md px-3 py-2 shadow-sm">
             <Calendar size={18} className="text-gray-500 mr-2" />
             <DatePicker 
@@ -116,6 +141,7 @@ const RoutesPage: React.FC = () => {
             />
           </div>
 
+          {/* Botón Exportar */}
           <Button
             variant="outline"
             size="sm"
@@ -146,11 +172,10 @@ const RoutesPage: React.FC = () => {
                 <Spinner size={32} />
               </div>
             ) : (
-              // --- AQUÍ CONECTAMOS LA LISTA CON EL ESTADO ---
               <RouteList 
                 routes={routes} 
-                onSelectRoute={(id) => setSelectedRouteId(id)} // Al hacer click, actualiza el estado
-                selectedRouteId={selectedRouteId} // Pasa el estado para saber cuál resaltar
+                onSelectRoute={handleRouteSelect} // Pasamos la función que activa el spinner
+                selectedRouteId={selectedRouteId} 
               />
             )}
           </div>
@@ -158,13 +183,25 @@ const RoutesPage: React.FC = () => {
 
         {/* COLUMNA DERECHA: MAPA */}
         <div className="lg:col-span-2 bg-white rounded-lg shadow overflow-hidden h-full relative border border-gray-200">
+          
+          {/* Spinner Global (Carga inicial) */}
           {isLoading && (
-            <div className="absolute inset-0 z-10 bg-white/80 flex items-center justify-center backdrop-blur-sm">
+            <div className="absolute inset-0 z-20 bg-white/80 flex items-center justify-center backdrop-blur-sm">
                 <Spinner size={48} />
             </div>
           )}
+
+          {/* Spinner Local (Selección de Ruta) - Este es el que dura 1 seg */}
+          {isSelectingRoute && (
+            <div className="absolute inset-0 z-20 bg-white/60 flex items-center justify-center backdrop-blur-sm transition-opacity duration-300">
+                <div className="bg-white p-4 rounded-full shadow-lg flex flex-col items-center border border-gray-100">
+                  <Spinner size={32} className="text-purple-600" />
+                  <span className="text-xs text-gray-500 mt-2 font-medium">Cargando ruta...</span>
+                </div>
+            </div>
+          )}
+
           <div className="h-full w-full">
-            {/* El mapa recibe el ID seleccionado y se encarga de pintarlo */}
             <MapView 
                 showRoutes={true}
                 showWarehouses={true}
