@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Route as RouteIcon, Calendar, Download } from 'lucide-react';
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import * as XLSX from 'xlsx'; // Importar librería XLSX
 
 import MapView from '../../components/map/MapView';
 import RouteList from '../../components/dashboard/RouteList';
@@ -71,46 +72,66 @@ const RoutesPage: React.FC = () => {
   }, [selectedRouteId]); 
 
 
-  // --- EXPORTACIÓN CSV ---
-  const exportRoutes = () => {
-    const csvRows = [];
-    csvRows.push(['Warehouse', 'Truck', 'Driver', 'Status', 'Stops', 'Distance (km)', 'Est. Time (min)'].join(','));
-    
-    routes.forEach(route => {
+  // --- EXPORTACIÓN EXCEL (XLSX) ---
+  const exportRoutesToExcel = () => {
+    // 1. Preparar los datos
+    const excelData = routes.map(route => {
       const warehouse = warehouses.find(w => w.id === route.warehouseId)?.name || 'Unknown';
       const truck = trucks.find(t => t.id === route.truckId);
       const truckName = truck?.name || 'Unknown';
       const driverName = truck?.driverName || 'Unassigned';
-      const storeCount = route.stores?.length || 0;
       
-      // Comillas para evitar errores con comas en los nombres
-      const safeWarehouse = `"${warehouse}"`;
-      const safeTruck = `"${truckName}"`;
-      const safeDriver = `"${driverName}"`;
+      // Obtener nombres de tiendas y formatear la secuencia
+      const storesList = route.stores.map((storeId, index) => {
+        const store = stores.find(s => s.id === storeId);
+        return `${index + 1}. ${store?.name || 'Unknown'}`;
+      }).join('\n'); // Salto de línea para lista en celda
 
-      csvRows.push([
-        safeWarehouse,
-        safeTruck,
-        safeDriver,
-        route.status,
-        storeCount,
-        route.distance.toFixed(2),
-        route.estimatedTime.toFixed(0)
-      ].join(','));
+      return {
+        'ID Ruta': route.id.substring(0, 8),
+        'Fecha': new Date(route.created).toLocaleDateString(),
+        'Almacén Origen': warehouse,
+        'Unidad': truckName,
+        'Conductor': driverName,
+        'Estatus': route.status === 'completed' ? 'Completada' : 
+                   route.status === 'in_progress' ? 'En Ruta' : 'Pendiente',
+        'Paradas Total': route.stores.length,
+        'Secuencia de Tiendas': storesList, // Lista de tiendas
+        'Distancia (km)': route.distance.toFixed(2),
+        'Tiempo Est. (min)': (route.estimatedTime * 60).toFixed(0),
+        'Inicio Real': route.actualStartTime ? new Date(route.actualStartTime).toLocaleTimeString() : '-',
+        'Fin Real': route.actualEndTime ? new Date(route.actualEndTime).toLocaleTimeString() : '-'
+      };
     });
-    
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
+
+    // 2. Crear Libro y Hoja
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Rutas");
+
+    // 3. Ajustar ancho de columnas (Opcional pero recomendado)
+    const columnWidths = [
+        { wch: 10 }, // ID
+        { wch: 12 }, // Fecha
+        { wch: 20 }, // Almacén
+        { wch: 15 }, // Unidad
+        { wch: 20 }, // Conductor
+        { wch: 12 }, // Estatus
+        { wch: 8 },  // Paradas
+        { wch: 40 }, // Secuencia (Ancha)
+        { wch: 10 }, // Distancia
+        { wch: 10 }, // Tiempo
+        { wch: 12 }, // Inicio
+        { wch: 12 }  // Fin
+    ];
+    worksheet['!cols'] = columnWidths;
+
+    // 4. Descargar archivo
     const dateStr = selectedDate.toISOString().split('T')[0];
-    link.setAttribute('download', `routes_${dateStr}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    XLSX.writeFile(workbook, `Reporte_Rutas_${dateStr}.xlsx`);
   };
+
+  // ----------------------------------
 
   return (
     <div className="space-y-6 h-[calc(100vh-120px)] flex flex-col">
@@ -141,15 +162,16 @@ const RoutesPage: React.FC = () => {
             />
           </div>
 
-          {/* Botón Exportar */}
+          {/* Botón Exportar Excel */}
           <Button
             variant="outline"
             size="sm"
-            onClick={exportRoutes}
+            onClick={exportRoutesToExcel} // Usamos la nueva función
             leftIcon={<Download size={16} />}
             disabled={routes.length === 0}
+            className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100" // Estilo Excel
           >
-            Export CSV
+            Exportar Excel
           </Button>
         </div>
       </div>
@@ -174,7 +196,7 @@ const RoutesPage: React.FC = () => {
             ) : (
               <RouteList 
                 routes={routes} 
-                onSelectRoute={handleRouteSelect} // Pasamos la función que activa el spinner
+                onSelectRoute={handleRouteSelect} 
                 selectedRouteId={selectedRouteId} 
               />
             )}
