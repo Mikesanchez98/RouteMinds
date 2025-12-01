@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import React, { useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet'; // <--- Importamos Polyline
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import L from 'leaflet';
@@ -7,7 +7,7 @@ import 'leaflet-routing-machine';
 import useDataStore from '../../store/dataStore';
 import { Warehouse, Store } from '../../types';
 
-// --- 1. Arreglo de Iconos (Estándar y Funcional) ---
+// --- 1. CONFIGURACIÓN DE ICONOS ---
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
@@ -36,81 +36,149 @@ const storeIcon = new L.Icon({
   popupAnchor: [1, -34],
 });
 
-// --- 2. Componente RouteLayer (Lógica Pura) ---
-// Este componente crea la ruta y maneja los errores de red silenciosamente
+// --- 2. FUNCION AUXILIAR DE VALIDACIÓN ---
+const isValidCoord = (lat: any, lng: any) => {
+  const numLat = Number(lat);
+  const numLng = Number(lng);
+  return Number.isFinite(numLat) && Number.isFinite(numLng) && Math.abs(numLat) <= 90 && Math.abs(numLng) <= 180;
+};
+
+// --- 3. COMPONENTE RouteLayer (Para Ruta Detallada) ---
 const RouteLayer: React.FC<{
   warehouse: Warehouse;
   stores: Store[];
   color: string;
-}> = ({ warehouse, stores, color }) => {
+  isSelected: boolean;
+}> = ({ warehouse, stores, color, isSelected }) => {
   const map = useMap();
-
+  const routingControlRef = useRef<L.Routing.Control | null>(null);
+  
   useEffect(() => {
-    if (!warehouse || !stores || stores.length === 0) return;
+    if (!warehouse?.location || !stores || !Array.isArray(stores)) return;
+    if (!isValidCoord(warehouse.location.lat, warehouse.location.lng)) return;
 
-    // Puntos de la ruta
-    const waypoints = [
-      L.latLng(warehouse.location.lat, warehouse.location.lng),
-      ...stores.map(s => L.latLng(s.location.lat, s.location.lng)),
-      L.latLng(warehouse.location.lat, warehouse.location.lng)
-    ];
+    const validStores = stores.filter(s => s.location && isValidCoord(s.location.lat, s.location.lng));
+    if (validStores.length === 0) return;
 
-    // Crear el control
-    const routingControl = L.Routing.control({
-      waypoints,
-      show: false, // No mostrar panel de texto
-      addWaypoints: false,
-      draggableWaypoints: false,
-      fitSelectedRoutes: true, // Ajustar zoom automáticamente
-      lineOptions: {
-        styles: [{ color, weight: 5, opacity: 0.8 }]
-      },
-      createMarker: () => null // No crear marcadores extra
-    });
-
-    // --- PROTECCIÓN CONTRA CRASH ---
-    // Escuchamos el evento de error. Si OSRM falla (timeout), 
-    // esto evita que el error suba a React y ponga la pantalla blanca.
-    routingControl.on('routingerror', function(e) {
-      console.warn('Routing error (OSRM limit reached):', e);
-    });
-
-    // Añadir al mapa
-    routingControl.addTo(map);
-
-    // Limpieza al desmontar
-    return () => {
+    // Limpieza previa
+    if (routingControlRef.current) {
       try {
-        map.removeControl(routingControl);
-      } catch (e) {
-        console.warn("Error cleaning up map control", e);
+        map.removeControl(routingControlRef.current);
+        routingControlRef.current = null;
+      } catch (e) {}
+    }
+
+    try {
+      const waypoints = [
+        L.latLng(Number(warehouse.location.lat), Number(warehouse.location.lng)),
+        ...validStores.map(store => L.latLng(Number(store.location.lat), Number(store.location.lng))),
+        L.latLng(Number(warehouse.location.lat), Number(warehouse.location.lng)),
+      ];
+
+      const routingControl = L.Routing.control({
+        waypoints,
+        routeWhileDragging: false,
+        showAlternatives: false,
+        fitSelectedRoutes: isSelected,
+        show: false,
+        lineOptions: {
+          styles: [{ color, weight: isSelected ? 6 : 4, opacity: isSelected ? 1 : 0.6 }]
+        },
+        createMarker: () => null,
+        addWaypoints: false,
+        draggableWaypoints: false,
+        // @ts-ignore
+        containerClassName: 'routing-container-hidden'
+      });
+
+      routingControl.addTo(map);
+      routingControlRef.current = routingControl;
+
+      if (isSelected) {
+        const container = routingControl.getContainer();
+        if (container) container.style.zIndex = "1000";
+      }
+
+    } catch (error) {
+      console.error("Error en Leaflet Routing Machine:", error);
+    }
+
+    return () => {
+      if (routingControlRef.current) {
+        try {
+          map.removeControl(routingControlRef.current);
+          routingControlRef.current = null;
+        } catch (e) {}
       }
     };
-  }, [map, warehouse, stores, color]);
-
+  }, [map, warehouse, stores, color, isSelected]);
+  
   return null;
 };
 
-// --- 3. Componente para ajustar Zoom (Bounds) ---
+// --- 4. NUEVO: Componente SimpleRoute (Líneas Rectas para Vista General) ---
+const SimpleRouteLayer: React.FC<{
+    warehouse: Warehouse;
+    stores: Store[];
+    color: string;
+}> = ({ warehouse, stores, color }) => {
+    if (!warehouse?.location || !stores || stores.length === 0) return null;
+
+    // Construir array de coordenadas: [Lat, Lng]
+    // Almacén -> Tienda 1 -> Tienda 2 ... -> Almacén
+    const positions: [number, number][] = [];
+    
+    // Inicio
+    if (isValidCoord(warehouse.location.lat, warehouse.location.lng)) {
+        positions.push([Number(warehouse.location.lat), Number(warehouse.location.lng)]);
+    }
+
+    // Tiendas
+    stores.forEach(s => {
+        if (isValidCoord(s.location.lat, s.location.lng)) {
+            positions.push([Number(s.location.lat), Number(s.location.lng)]);
+        }
+    });
+
+    // Regreso (cerrar ciclo)
+    if (positions.length > 0) {
+        positions.push(positions[0]);
+    }
+
+    return (
+        <Polyline 
+            positions={positions} 
+            pathOptions={{ color: color, weight: 2, opacity: 0.5, dashArray: '5, 10' }} 
+        />
+    );
+};
+
+
+// --- 5. COMPONENTE MapBounds ---
 const MapBounds: React.FC<{ warehouses: Warehouse[]; stores: Store[] }> = ({ warehouses, stores }) => {
   const map = useMap();
   
   useEffect(() => {
-    if (warehouses.length === 0 && stores.length === 0) return;
+    const validPoints: [number, number][] = [];
+    warehouses.forEach(w => {
+        if(isValidCoord(w.location?.lat, w.location?.lng)) validPoints.push([Number(w.location.lat), Number(w.location.lng)]);
+    });
+    stores.forEach(s => {
+        if(isValidCoord(s.location?.lat, s.location?.lng)) validPoints.push([Number(s.location.lat), Number(s.location.lng)]);
+    });
     
-    const points: [number, number][] = [];
-    warehouses.forEach(w => points.push([w.location.lat, w.location.lng]));
-    stores.forEach(s => points.push([s.location.lat, s.location.lng]));
-    
-    if (points.length > 0) {
-      map.fitBounds(L.latLngBounds(points), { padding: [50, 50] });
+    if (validPoints.length > 0) {
+      try {
+        const bounds = L.latLngBounds(validPoints);
+        map.fitBounds(bounds, { padding: [50, 50] });
+      } catch (e) { console.warn(e); }
     }
   }, [map, warehouses, stores]);
   
   return null;
 };
 
-// --- 4. Componente Principal MapView ---
+// --- 6. COMPONENTE PRINCIPAL ---
 interface MapViewProps {
   showRoutes?: boolean;
   selectedRoute?: string;
@@ -125,12 +193,11 @@ const MapView: React.FC<MapViewProps> = ({
   showStores = true
 }) => {
   const { warehouses, stores, routes } = useDataStore();
-
-  // Lógica simple: Si hay una ruta seleccionada, esa es la única que pintamos.
-  // Si no hay ninguna seleccionada, no pintamos nada (para evitar el timeout).
-  const routeToRender = selectedRoute 
-    ? routes.find(r => r.id === selectedRoute) 
-    : null;
+  
+  // Decidimos qué rutas mostrar
+  const filteredRoutes = selectedRoute 
+    ? routes.filter(route => route.id === selectedRoute) // Si hay selección, solo esa
+    : routes; // Si no, TODAS (pero las pintaremos simples)
 
   return (
     <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden shadow-md z-0 relative">
@@ -140,54 +207,89 @@ const MapView: React.FC<MapViewProps> = ({
         style={{ height: '100%', width: '100%', minHeight: '400px' }}
       >
         <TileLayer
-          attribution='&copy; OpenStreetMap'
+          attribution='&copy; OpenStreetMap contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         
         <MapBounds warehouses={warehouses} stores={stores} />
         
-        {/* Marcadores de Almacenes */}
-        {showWarehouses && warehouses.map(w => (
-          <Marker key={w.id} position={[w.location.lat, w.location.lng]} icon={warehouseIcon}>
-            <Popup>
-              <div className="font-bold">{w.name}</div>
-              <div className="text-xs">{w.address}</div>
-            </Popup>
-          </Marker>
-        ))}
+        {/* ALMACENES */}
+        {showWarehouses && warehouses.map((warehouse) => {
+            if (!isValidCoord(warehouse.location?.lat, warehouse.location?.lng)) return null;
+            return (
+              <Marker
+                key={warehouse.id}
+                position={[Number(warehouse.location.lat), Number(warehouse.location.lng)]}
+                icon={warehouseIcon}
+              >
+                <Popup>
+                  <div className="p-2">
+                    <h3 className="font-bold">{warehouse.name}</h3>
+                    <p className="text-xs">{warehouse.address}</p>
+                  </div>
+                </Popup>
+              </Marker>
+            )
+        })}
         
-        {/* Marcadores de Tiendas */}
-        {showStores && stores.map(s => (
-          <Marker key={s.id} position={[s.location.lat, s.location.lng]} icon={storeIcon}>
-            <Popup>
-              <div className="font-bold">{s.name}</div>
-              <div className="text-xs">{s.address}</div>
-              <div className="text-xs">Demanda: {s.demand}</div>
-            </Popup>
-          </Marker>
-        ))}
+        {/* TIENDAS */}
+        {showStores && stores.map((store) => {
+            if (!isValidCoord(store.location?.lat, store.location?.lng)) return null;
+            return (
+              <Marker
+                key={store.id}
+                position={[Number(store.location.lat), Number(store.location.lng)]}
+                icon={storeIcon}
+              >
+                <Popup>
+                  <div className="p-2">
+                    <h3 className="font-bold">{store.name}</h3>
+                    <p className="text-xs">{store.address}</p>
+                    <p className="text-xs mt-1">Demanda: {store.demand}</p>
+                  </div>
+                </Popup>
+              </Marker>
+            )
+        })}
         
-        {/* Renderizado de la RUTA ÚNICA */}
-        {showRoutes && routeToRender && (() => {
-            const warehouse = warehouses.find(w => w.id === routeToRender.warehouseId);
-            // Filtramos las tiendas asegurando que existen
-            const routeStores = stores.filter(s => routeToRender.stores?.includes(s.id));
-            
-            if (warehouse && routeStores.length > 0) {
-                return (
-                    <RouteLayer 
-                        // USAR KEY ES CRUCIAL: Fuerza a React a destruir y crear de nuevo el componente
-                        // cuando cambia la ruta, evitando conflictos de Leaflet.
-                        key={routeToRender.id} 
-                        warehouse={warehouse}
-                        stores={routeStores}
-                        color="#2563eb"
-                    />
-                );
-            }
-            return null;
-        })()}
+        {/* RUTAS */}
+        {showRoutes && filteredRoutes.map((route) => {
+          const warehouse = warehouses.find(w => w.id === route.warehouseId);
+          if (!warehouse) return null;
+          
+          const routeStores = stores.filter(s => route.stores?.includes(s.id));
+          if (route.stores?.length > 0 && routeStores.length === 0) return null;
+          
+          // Color único por ruta (hash simple del ID)
+          // O azul fijo si está seleccionada
+          const isSelected = selectedRoute === route.id;
+          const routeColor = isSelected ? '#2563eb' : `#${route.id.substring(0, 6).padEnd(6, '0')}`;
 
+          // ESTRATEGIA HÍBRIDA:
+          // 1. Si la ruta está SELECCIONADA -> Usamos RouteLayer (Cálculo real de carreteras)
+          // 2. Si NO está seleccionada (Vista general) -> Usamos SimpleRouteLayer (Líneas rectas)
+          
+          if (isSelected) {
+              return (
+                <RouteLayer
+                  key={route.id} // Key importante para reinicializar
+                  warehouse={warehouse}
+                  stores={routeStores}
+                  color={routeColor}
+                  isSelected={true}
+                />
+              );
+          } else {
+              return (
+                  <SimpleRouteLayer
+                    key={`simple-${route.id}`}
+                    warehouse={warehouse}
+                    stores={routeStores}
+                    color={routeColor}
+                  />
+              );
+          }
+        })}
       </MapContainer>
     </div>
   );

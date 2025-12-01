@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Download, Calendar, Truck, CheckCircle } from 'lucide-react';
+import { FileText, Download, Calendar, Truck, CheckCircle, TrendingUp, DollarSign } from 'lucide-react';
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import Button from '../../components/common/Button';
@@ -11,21 +11,27 @@ import toast from 'react-hot-toast';
 const ReportsPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const { 
-    routes, trucks, warehouses, drivers, 
-    fetchRoutesByDate, fetchTrucks, fetchWarehouses, fetchDrivers 
+    routes, trucks, warehouses, drivers, stores,
+    fetchRoutesByDate, fetchTrucks, fetchWarehouses, fetchDrivers, fetchStores 
   } = useDataStore();
 
-  // Función auxiliar para cargar datos frescos
+  // --- CONSTANTES DE NEGOCIO ---
+  const COSTO_POR_KM = 15.50; 
+  const COSTO_FIJO_POR_RUTA = 150.00; 
+  const UMBRAL_RETRASO_MIN = 15; 
+
+  // Cargar datos
   const prepareData = async () => {
-    const loadingToast = toast.loading('Recopilando datos...');
+    const loadingToast = toast.loading('Procesando datos...');
     try {
       await Promise.all([
         fetchRoutesByDate(selectedDate),
         fetchTrucks(),
         fetchWarehouses(),
-        fetchDrivers() 
+        fetchDrivers(),
+        fetchStores()
       ]);
-      toast.success('Datos actualizados', { id: loadingToast });
+      toast.success('Datos listos', { id: loadingToast });
       return true;
     } catch (error) {
       toast.error('Error al cargar datos', { id: loadingToast });
@@ -33,139 +39,235 @@ const ReportsPage: React.FC = () => {
     }
   };
 
-  // --- REPORTE 1: DIARIO OPERATIVO ---
+  // --- GENERADOR REPORTE 1: FINANCIERO Y OPERATIVO ---
   const generateDailyReport = async () => {
-    const success = await prepareData();
-    if (!success) return;
-
-    if (routes.length === 0) {
-      toast.error('No hay rutas registradas para esta fecha.');
-      return;
-    }
+    if (!(await prepareData())) return;
+    if (routes.length === 0) { toast.error('Sin datos para esta fecha.'); return; }
 
     const doc = new jsPDF();
     const dateStr = selectedDate.toLocaleDateString();
 
-    // Encabezado
-    doc.setFontSize(20);
-    doc.setTextColor(40, 40, 40);
-    doc.text('Reporte Operativo Diario', 14, 22);
-    
+    // Encabezado Visual
+    doc.setFillColor(41, 128, 185); // Azul
+    doc.rect(0, 0, 210, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.text('REPORTE DIARIO DE OPERACIONES', 14, 18);
     doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Fecha: ${dateStr}`, 14, 28);
-    doc.text(`Generado por: RouteMinds System`, 14, 33);
+    doc.text(`Business Intelligence Module | Fecha: ${dateStr}`, 14, 25);
 
-    // Resumen (KPIs)
-    const totalRoutes = routes.length;
-    const completedRoutes = routes.filter(r => r.status === 'completed').length;
-    const totalDistance = routes.reduce((acc, r) => acc + r.distance, 0).toFixed(1);
-    
-    doc.setFillColor(240, 240, 240);
-    doc.rect(14, 40, 182, 25, 'F');
-    
-    doc.setFontSize(12);
-    doc.setTextColor(0);
-    doc.text(`Total Rutas: ${totalRoutes}`, 20, 50);
-    doc.text(`Completadas: ${completedRoutes}`, 20, 58);
-    doc.text(`Distancia Total: ${totalDistance} km`, 100, 50);
-    doc.text(`Eficiencia: ${totalRoutes > 0 ? Math.round((completedRoutes/totalRoutes)*100) : 0}%`, 100, 58);
+    // Cálculos BI
+    const totalKm = routes.reduce((acc, r) => acc + r.distance, 0);
+    const totalCost = (totalKm * COSTO_POR_KM) + (routes.length * COSTO_FIJO_POR_RUTA);
+    const completed = routes.filter(r => r.status === 'completed').length;
+    const efficiency = Math.round((completed / routes.length) * 100);
+
+    // Cajas de KPIs (Dibujadas)
+    const drawKPI = (x: number, title: string, value: string, subtitle: string, color: [number, number, number]) => {
+        doc.setDrawColor(220);
+        doc.setFillColor(250, 250, 250);
+        doc.roundedRect(x, 40, 55, 30, 2, 2, 'FD');
+        
+        doc.setFontSize(9); doc.setTextColor(100);
+        doc.text(title, x + 5, 48);
+        
+        doc.setFontSize(16); doc.setTextColor(color[0], color[1], color[2]);
+        doc.text(value, x + 5, 58);
+        
+        doc.setFontSize(8); doc.setTextColor(150);
+        doc.text(subtitle, x + 5, 66);
+    };
+
+    drawKPI(14, "COSTO OPERATIVO", `$${totalCost.toLocaleString()}`, "Estimado Total", [41, 128, 185]);
+    drawKPI(74, "KILOMETRAJE", `${totalKm.toFixed(1)} km`, "Recorrido Total", [230, 126, 34]);
+    drawKPI(134, "EFICIENCIA", `${efficiency}%`, "Rutas Completadas", efficiency > 80 ? [39, 174, 96] : [192, 57, 43]);
 
     // Tabla Detallada
-    const tableData = routes.map(route => {
-      const truck = trucks.find(t => t.id === route.truckId);
-      const warehouse = warehouses.find(w => w.id === route.warehouseId);
+    const tableRows = routes.map(r => {
+      const w = warehouses.find(wh => wh.id === r.warehouseId)?.name || 'N/A';
+      const t = trucks.find(tr => tr.id === r.truckId)?.name || 'N/A';
+      const costo = (r.distance * COSTO_POR_KM) + COSTO_FIJO_POR_RUTA;
       
       return [
-        route.id.substring(0, 6),
-        truck?.name || 'N/A',
-        truck?.driverName || 'Sin conductor',
-        warehouse?.name || 'N/A',
-        `${route.stores.length} paradas`,
-        `${route.distance.toFixed(1)} km`,
-        route.status === 'completed' ? 'Completada' : route.status === 'in_progress' ? 'En Ruta' : 'Pendiente'
+        r.id.substring(0, 6),
+        w,
+        t,
+        r.stores.length,
+        `${r.distance.toFixed(1)} km`,
+        `$${costo.toFixed(0)}`,
+        r.status === 'completed' ? 'OK' : 'PEND'
       ];
     });
 
     autoTable(doc, {
-      startY: 75,
-      head: [['ID', 'Camión', 'Conductor', 'Origen', 'Paradas', 'Distancia', 'Estado']],
-      body: tableData,
-      headStyles: { fillColor: [79, 70, 229] },
-      alternateRowStyles: { fillColor: [245, 247, 255] },
-      styles: { fontSize: 9 },
+      startY: 80,
+      head: [['ID', 'Origen', 'Unidad', 'Paradas', 'Distancia', 'Costo', 'Estado']],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: [52, 73, 94], halign: 'center' },
+      columnStyles: { 
+          4: { halign: 'right' }, 
+          5: { halign: 'right', fontStyle: 'bold' },
+          6: { halign: 'center' }
+      },
+      didParseCell: function(data) {
+          if (data.section === 'body' && data.column.index === 6) {
+              if (data.cell.raw === 'OK') {
+                  data.cell.styles.textColor = [39, 174, 96];
+                  data.cell.styles.fontStyle = 'bold';
+              } else {
+                  data.cell.styles.textColor = [192, 57, 43];
+              }
+          }
+      }
     });
 
-    doc.save(`Reporte_Diario_${selectedDate.toISOString().split('T')[0]}.pdf`);
-    toast.success('PDF descargado');
+    // Gráfica de Barras Simulada (Progreso de Costos)
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    doc.setFontSize(12); doc.setTextColor(0);
+    doc.text('Distribución de Costos por Ruta (Análisis Visual)', 14, finalY);
+    
+    let barY = finalY + 10;
+    const maxCost = Math.max(...routes.map(r => (r.distance * COSTO_POR_KM) + COSTO_FIJO_POR_RUTA));
+    
+    routes.slice(0, 5).forEach((r, i) => { 
+        const cost = (r.distance * COSTO_POR_KM) + COSTO_FIJO_POR_RUTA;
+        const width = (cost / maxCost) * 100; 
+        
+        doc.setFontSize(9); doc.setTextColor(100);
+        doc.text(`Ruta ${r.id.substring(0, 4)}`, 14, barY + 4);
+        
+        doc.setFillColor(52, 152, 219);
+        doc.rect(35, barY, width, 5, 'F');
+        
+        doc.setFontSize(9); doc.setTextColor(50);
+        doc.text(`$${cost.toFixed(0)}`, 35 + width + 2, barY + 4);
+        
+        barY += 10;
+    });
+
+    doc.save(`Reporte_Financiero_${dateStr.replace(/\//g, '-')}.pdf`);
+    toast.success('Reporte Financiero generado');
   };
 
-  // --- REPORTE 2: FLOTILLA ---
+  // --- REPORTE 2: FLOTILLA (Con Gráficas de Barra en Tabla) ---
   const generateFleetReport = async () => {
-    const success = await prepareData();
-    if (!success) return;
-
-    if (trucks.length === 0) {
-      toast.error('No hay camiones registrados.');
-      return;
-    }
+    if (!(await prepareData())) return;
+    if (trucks.length === 0) { toast.error('Sin datos.'); return; }
 
     const doc = new jsPDF();
     const dateStr = selectedDate.toLocaleDateString();
 
-    doc.setFontSize(20);
-    doc.setTextColor(40, 40, 40);
-    doc.text('Reporte de Desempeño de Flotilla', 14, 22);
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Fecha de análisis: ${dateStr}`, 14, 28);
-    
+    // Encabezado Verde (Productividad)
+    doc.setFillColor(39, 174, 96); 
+    doc.rect(0, 0, 210, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.text('ANÁLISIS DE PRODUCTIVIDAD DE FLOTILLA', 14, 18);
+    doc.setFontSize(10); doc.text(`Rendimiento y Ocupación | ${dateStr}`, 14, 25);
+
+    // --- CÁLCULOS PREVIOS ---
+    let totalFleetKm = 0;
+    let totalFleetStops = 0;
+    let totalFleetRoutes = 0;
+
     const fleetData = trucks.map(truck => {
       const truckRoutes = routes.filter(r => r.truckId === truck.id);
-      const completed = truckRoutes.filter(r => r.status === 'completed');
-      const totalKm = truckRoutes.reduce((sum, r) => sum + r.distance, 0);
-      const totalStops = truckRoutes.reduce((sum, r) => sum + r.stores.length, 0);
-      const driver = drivers.find(d => d.id === truck.currentDriverId);
+      const km = truckRoutes.reduce((sum, r) => sum + r.distance, 0);
+      const stops = truckRoutes.reduce((sum, r) => sum + r.stores.length, 0);
+      
+      totalFleetKm += km;
+      totalFleetStops += stops;
+      totalFleetRoutes += truckRoutes.length;
 
-      return [
-        truck.name,
-        driver?.name || 'Sin asignar',
-        truckRoutes.length.toString(),
-        completed.length.toString(),
-        `${totalKm.toFixed(1)} km`,
-        totalStops.toString(),
-        `${truck.capacity} kg`
-      ];
+      const maxCap = truck.capacity * (truckRoutes.length || 1);
+      const usedCap = truckRoutes.reduce((sum, r) => sum + (r.stores.length * 15), 0); 
+      const occupation = Math.min(100, Math.round((usedCap / maxCap) * 100));
+
+      return {
+        name: truck.name,
+        driver: truck.driverName || 'N/A',
+        km: km,
+        stops: stops,
+        occupation: occupation,
+        routesCount: truckRoutes.length
+      };
     });
 
+    fleetData.sort((a, b) => b.km - a.km);
+
+    // --- RECUADROS DE RESUMEN (KPIs) ---
+    const drawKPI = (x: number, title: string, value: string, subtitle: string, color: [number, number, number]) => {
+        doc.setDrawColor(200);
+        doc.setFillColor(250, 250, 250);
+        doc.roundedRect(x, 40, 55, 30, 2, 2, 'FD');
+        
+        doc.setFontSize(9); doc.setTextColor(100);
+        doc.text(title, x + 5, 48);
+        
+        doc.setFontSize(16); doc.setTextColor(color[0], color[1], color[2]);
+        doc.text(value, x + 5, 58);
+        
+        doc.setFontSize(8); doc.setTextColor(150);
+        doc.text(subtitle, x + 5, 66);
+    };
+
+    drawKPI(14, "DISTANCIA TOTAL", `${totalFleetKm.toFixed(1)} km`, "Flota Activa", [22, 160, 133]);
+    drawKPI(74, "ENTREGAS TOTALES", `${totalFleetStops}`, "Puntos Visitados", [230, 126, 34]);
+    drawKPI(134, "RUTAS ASIGNADAS", `${totalFleetRoutes}`, "Despachos del Día", [41, 128, 185]);
+
+    // --- TABLA ---
     autoTable(doc, {
-      startY: 40,
-      head: [['Camión', 'Conductor', 'Rutas Total', 'Completadas', 'Distancia', 'Paradas', 'Capacidad']],
-      body: fleetData,
-      headStyles: { fillColor: [16, 185, 129] }, // Verde
-      alternateRowStyles: { fillColor: [240, 253, 244] },
-      styles: { fontSize: 9, halign: 'center' },
-      columnStyles: { 0: { halign: 'left', fontStyle: 'bold' }, 1: { halign: 'left' } }
+      startY: 80, // Bajamos la tabla para dar espacio a los KPIs
+      head: [['Unidad', 'Conductor', 'Km Recorridos', 'Entregas', 'Nivel de Ocupación (Visual)']],
+      body: fleetData.map(d => [d.name, d.driver, `${d.km.toFixed(1)} km`, d.stops.toString(), '']), 
+      headStyles: { fillColor: [22, 160, 133] },
+      styles: { fontSize: 10, halign: 'center' },
+      columnStyles: { 
+          0: { halign: 'left', fontStyle: 'bold' },
+          1: { halign: 'left' },
+          2: { halign: 'right' },
+          4: { cellWidth: 60 } 
+      },
+      didDrawCell: function(data) {
+          if (data.section === 'body' && data.column.index === 4) {
+              const index = data.row.index;
+              const occupation = fleetData[index].occupation;
+              
+              const cellX = data.cell.x + 2;
+              const cellY = data.cell.y + 3;
+              // Dibujar barra de fondo (Gris)
+              const barHeight = data.cell.height - 6;
+              doc.setFillColor(240, 240, 240);
+              doc.rect(cellX, cellY, data.cell.width - 4, barHeight, 'F');
+
+              // Definir color según porcentaje
+              if (occupation < 50) doc.setFillColor(231, 76, 60); // Rojo (Vacío)
+              else if (occupation < 80) doc.setFillColor(241, 196, 15); // Amarillo
+              else doc.setFillColor(46, 204, 113); // Verde (Lleno)
+              
+              // Dibujar barra de progreso
+              const barWidth = (data.cell.width - 4) * (occupation / 100);
+              doc.rect(cellX, cellY, barWidth, barHeight, 'F');
+              
+              // Texto del porcentaje
+              doc.setFontSize(8);
+              doc.setTextColor(0);
+              // Centrar texto
+              const textWidth = doc.getTextWidth(`${occupation}%`);
+              doc.text(`${occupation}%`, cellX + (data.cell.width / 2) - (textWidth / 2), cellY + (barHeight / 2) + 3);
+          }
+      }
     });
 
-    const finalY = (doc as any).lastAutoTable.finalY || 40;
-    const totalFleetKm = routes.reduce((sum, r) => sum + r.distance, 0);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(0);
-    doc.text(`Kilometraje Total de la Flotilla: ${totalFleetKm.toFixed(1)} km`, 14, finalY + 10);
-
-    doc.save(`Reporte_Flotilla_${selectedDate.toISOString().split('T')[0]}.pdf`);
-    toast.success('Reporte de Flotilla descargado');
+    doc.save(`Flotilla_${dateStr.replace(/\//g, '-')}.pdf`);
+    toast.success('Reporte de Flotilla generado');
   };
 
-// --- REPORTE 3: AUDITORÍA DE ENTREGAS (MEJORADO) ---
+  // --- REPORTE 3: AUDITORÍA (Calidad de Servicio - MEJORADO) ---
   const generateAuditReport = async () => {
-    const success = await prepareData();
-    if (!success) return;
-
-    // CAMBIO 1: Filtro más permisivo.
-    // Aceptamos rutas completadas, aunque falte algún tiempo (lo manejaremos después)
+    if (!(await prepareData())) return;
+    
     const auditRoutes = routes.filter(r => r.status === 'completed');
 
     if (auditRoutes.length === 0) {
@@ -176,124 +278,171 @@ const ReportsPage: React.FC = () => {
     const doc = new jsPDF();
     const dateStr = selectedDate.toLocaleDateString();
 
-    // Encabezado
-    doc.setFontSize(20);
-    doc.setTextColor(40, 40, 40);
-    doc.text('Auditoría de Cumplimiento de Entregas', 14, 22);
+    // --- 1. PORTADA / ENCABEZADO FORMAL ---
+    doc.setFillColor(44, 62, 80); // Azul oscuro formal
+    doc.rect(0, 0, 210, 40, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.text('AUDITORÍA DE CUMPLIMIENTO DE RUTAS', 14, 20);
     
     doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Fecha de auditoría: ${dateStr}`, 14, 28);
-    doc.text('Criterio de Retraso: >10% sobre tiempo estimado', 14, 33);
+    doc.setTextColor(200, 200, 200);
+    doc.text(`Fecha de Auditoría: ${dateStr}`, 14, 28);
+    doc.text(`ID de Auditoría: AUD-${Date.now().toString().substring(8)}`, 14, 34);
+    doc.text(`Alcance: ${auditRoutes.length} rutas completadas`, 140, 28);
 
-    let totalDelayed = 0;
-    let totalAudited = 0;
-
+    // --- 2. ANÁLISIS DE DATOS (Examen) ---
+    let totalDeviationMinutes = 0;
+    let lateRoutes = 0;
+    let earlyRoutes = 0;
+    let onTimeRoutes = 0;
+    
     const auditData = auditRoutes.map(route => {
       const truck = trucks.find(t => t.id === route.truckId);
-      const driver = drivers.find(d => d.id === truck?.currentDriverId);
-      
-      // Valores por defecto si faltan datos
-      let startTimeStr = 'N/A';
-      let endTimeStr = 'N/A';
-      let durationStr = 'N/A';
-      let deviationStr = 'N/A';
-      let status = 'Sin Datos';
 
-      // CAMBIO 2: Cálculo seguro
+      let deviationStr = '--';
+      let status = 'N/A';
+      let rawDeviation = 0;
+      let realDuration = 'N/A';
+
       if (route.actualStartTime && route.actualEndTime) {
         const start = new Date(route.actualStartTime).getTime();
         const end = new Date(route.actualEndTime).getTime();
         const durationHours = (end - start) / (1000 * 60 * 60);
-
-        const estimated = route.estimatedTime || 0; // Evitar división por cero
+        realDuration = `${durationHours.toFixed(2)} h`;
         
-        startTimeStr = new Date(route.actualStartTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        endTimeStr = new Date(route.actualEndTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        durationStr = `${durationHours.toFixed(2)} h`;
+        const estimated = route.estimatedTime || 0.1; 
+        const deviation = durationHours - estimated;
+        rawDeviation = Math.round(deviation * 60); // Minutos
+        
+        deviationStr = `${rawDeviation > 0 ? '+' : ''}${rawDeviation} min`;
+        
+        const deviationPerc = (deviation / estimated) * 100;
 
-        if (estimated > 0) {
-            const deviation = durationHours - estimated;
-            const deviationPerc = (deviation / estimated) * 100;
-            deviationStr = `${deviation > 0 ? '+' : ''}${Math.round(deviation * 60)} min`;
-
-            if (deviationPerc > 10) {
-                status = 'Retrasada';
-                totalDelayed++;
-            } else if (deviationPerc < -10) {
-                status = 'Adelantada';
-            } else {
-                status = 'A Tiempo';
-            }
-            totalAudited++;
+        if (deviationPerc > 10 || rawDeviation > UMBRAL_RETRASO_MIN) {
+            status = 'CRÍTICO'; 
+            lateRoutes++;
+        } else if (deviationPerc < -10) {
+            status = 'HOLGADO'; 
+            earlyRoutes++;
         } else {
-            status = 'N/A (Est. 0)';
+            status = 'CUMPLIMIENTO';
+            onTimeRoutes++;
         }
-      } else {
-          status = 'Datos Incompletos';
+        totalDeviationMinutes += rawDeviation;
       }
 
-      return [
-        route.id.substring(0, 6),
-        driver?.name || 'N/A',
-        startTimeStr,
-        endTimeStr,
-        `${(route.estimatedTime || 0).toFixed(2)} h`,
-        durationStr,
-        deviationStr,
-        status
-      ];
+      return {
+        id: route.id.substring(0, 8),
+        driver: truck?.driverName || 'N/A',
+        estimated: `${(route.estimatedTime).toFixed(2)} h`,
+        real: realDuration,
+        deviation: deviationStr,
+        status: status,
+        rawDev: rawDeviation
+      };
     });
 
-    // Resumen visual (Evitar división por cero)
-    const cumplimientoRate = totalAudited > 0 
-        ? Math.round(((totalAudited - totalDelayed) / totalAudited) * 100) 
-        : 0;
-    
-    doc.setFillColor(255, 247, 237); 
-    doc.setDrawColor(251, 146, 60); 
-    doc.rect(14, 40, 182, 20, 'FD');
-    
-    doc.setFontSize(11);
-    doc.setTextColor(194, 65, 12); 
-    doc.text(`Índice de Cumplimiento: ${cumplimientoRate}%`, 20, 53);
-    doc.text(`Rutas Retrasadas: ${totalDelayed} de ${totalAudited}`, 100, 53);
+    // Puntaje General
+    // Corrección: Si no hay rutas completadas (auditRoutes.length es 0), el resultado es 0 para evitar NaN.
+    const score = auditRoutes.length > 0 ? Math.round((onTimeRoutes / auditRoutes.length) * 100) : 0;
+    const avgDeviation = auditRoutes.length > 0 ? Math.round(totalDeviationMinutes / auditRoutes.length) : 0;
 
+    // --- 3. RESULTADOS DEL EXAMEN (Dashboard en PDF) ---
+    
+    doc.setTextColor(0);
+    let yPos = 50;
+
+    // Resumen Ejecutivo
+    doc.setFontSize(14);
+    doc.text('Resumen Ejecutivo', 14, yPos);
+    yPos += 10;
+
+    doc.setDrawColor(200);
+    doc.setFillColor(250, 250, 250);
+    doc.rect(14, yPos, 182, 30, 'FD');
+    
+    // KPI 1: Score
+    doc.setFontSize(10); doc.setTextColor(100); doc.text('NIVEL DE CUMPLIMIENTO', 20, yPos + 8);
+    doc.setFontSize(18); 
+    if (score >= 90) doc.setTextColor(39, 174, 96);
+    else if (score >= 70) doc.setTextColor(243, 156, 18);
+    else doc.setTextColor(192, 57, 43);
+    doc.text(`${score}%`, 20, yPos + 20);
+
+    // KPI 2: Retrasos
+    doc.setFontSize(10); doc.setTextColor(100); doc.text('RUTAS CRÍTICAS', 90, yPos + 8);
+    doc.setFontSize(18); doc.setTextColor(192, 57, 43);
+    doc.text(`${lateRoutes}`, 90, yPos + 20);
+
+    // KPI 3: Desviación
+    doc.setFontSize(10); doc.setTextColor(100); doc.text('DESVIACIÓN PROMEDIO', 150, yPos + 8);
+    doc.setFontSize(18); doc.setTextColor(0);
+    doc.text(`${avgDeviation > 0 ? '+' : ''}${avgDeviation} min`, 150, yPos + 20);
+
+    yPos += 40;
+
+    // --- 4. HALLAZGOS Y CONCLUSIONES AUTOMÁTICAS ---
+    doc.setFontSize(14); doc.setTextColor(0);
+    doc.text('Hallazgos de la Auditoría', 14, yPos);
+    yPos += 8;
+    doc.setFontSize(10); doc.setTextColor(80);
+
+    let findings = [];
+    if (score === 100) findings.push("• La operación se ejecutó perfectamente según lo planificado.");
+    if (lateRoutes > 0) findings.push(`• Se detectaron ${lateRoutes} rutas con tiempos de ejecución superiores a la tolerancia permitida.`);
+    if (earlyRoutes > 0) findings.push(`• Se observaron ${earlyRoutes} rutas con holgura excesiva, sugiriendo oportunidad para agregar más paradas.`);
+    if (avgDeviation > 30) findings.push("• Desviación sistémica severa: Se recomienda revisar los parámetros de velocidad de la flota en el algoritmo.");
+    if (findings.length === 0) findings.push("• Operación dentro de parámetros normales con variaciones menores.");
+    
+    findings.forEach(f => {
+        doc.text(f, 14, yPos);
+        yPos += 6;
+    });
+    yPos += 5;
+
+    // --- 5. TABLA DE EVIDENCIA ---
+    const tableBody = auditData.map(d => [d.id, d.driver, d.estimated, d.real, d.deviation, d.status]);
+    
     autoTable(doc, {
-      startY: 65,
-      head: [['ID Ruta', 'Conductor', 'Inicio Real', 'Fin Real', 'Est.', 'Real', 'Desv.', 'Estatus']],
-      body: auditData,
-      headStyles: { fillColor: [234, 88, 12] },
+      startY: yPos,
+      head: [['ID Ruta', 'Operador', 'Planificado', 'Real', 'Desviación', 'Dictamen']],
+      body: tableBody,
+      theme: 'grid',
+      headStyles: { fillColor: [44, 62, 80] },
       styles: { fontSize: 9, halign: 'center' },
+      columnStyles: {
+          5: { fontStyle: 'bold' }
+      },
       didParseCell: function(data) {
-        if (data.section === 'body' && data.column.index === 7) {
-            const status = data.cell.raw;
-            if (status === 'Retrasada') {
-                data.cell.styles.textColor = [220, 38, 38];
-                data.cell.styles.fontStyle = 'bold';
-            } else if (status === 'A Tiempo') {
-                data.cell.styles.textColor = [22, 163, 74];
-            } else if (status === 'Datos Incompletos') {
-                data.cell.styles.textColor = [156, 163, 175]; // Gris
-            }
+        if (data.section === 'body' && data.column.index === 5) {
+            if (data.cell.raw === 'CRÍTICO') data.cell.styles.textColor = [192, 57, 43];
+            else if (data.cell.raw === 'CUMPLIMIENTO') data.cell.styles.textColor = [39, 174, 96];
+            else data.cell.styles.textColor = [243, 156, 18];
         }
       }
     });
 
-    doc.save(`Auditoria_Entregas_${selectedDate.toISOString().split('T')[0]}.pdf`);
-    toast.success('Auditoría descargada');
+    doc.setFontSize(8); doc.setTextColor(150);
+    doc.text(`Documento generado automáticamente por el Módulo de Auditoría RouteMinds.`, 14, doc.internal.pageSize.height - 10);
+
+    doc.save(`Auditoria_Oficial_${selectedDate.toISOString().split('T')[0]}.pdf`);
+    toast.success('Auditoría generada exitosamente');
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Centro de Reportes</h1>
-        <p className="mt-1 text-gray-600">Genera y descarga documentación operativa.</p>
+      <div className="flex justify-between items-end">
+        <div>
+            <h1 className="text-2xl font-bold text-gray-900">Centro de Inteligencia (BI)</h1>
+            <p className="mt-1 text-gray-600">Generación de informes estratégicos para la toma de decisiones.</p>
+        </div>
       </div>
 
-      {/* Selector de Fecha */}
+      {/* Selector de Fecha Global */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center space-x-4">
-        <span className="text-sm font-medium text-gray-700">Seleccionar periodo:</span>
+        <span className="text-sm font-medium text-gray-700">Periodo de Análisis:</span>
         <div className="flex items-center bg-gray-50 border border-gray-300 rounded-md px-3 py-2">
           <Calendar size={18} className="text-gray-500 mr-2" />
           <DatePicker 
@@ -306,50 +455,59 @@ const ReportsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* TARJETAS DE REPORTES */}
+      {/* GRID DE REPORTES */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         
         {/* Reporte 1 */}
-        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100 hover:border-indigo-200 transition-all group">
-          <div className="h-12 w-12 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-            <FileText size={24} />
+        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100 hover:border-blue-400 transition-all group cursor-pointer hover:shadow-lg transform hover:-translate-y-1">
+          <div className="flex justify-between items-start">
+            <div className="h-12 w-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
+                <DollarSign size={24} />
+            </div>
+            <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-1 rounded-full">Financiero</span>
           </div>
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Resumen Diario</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Resumen Diario & Costos</h3>
           <p className="text-sm text-gray-500 mb-6">
-            Detalle de todas las rutas, estado de cumplimiento y tiempos estimados del día.
+            Análisis de costos operativos estimados, KPIs de eficiencia y volumen.
           </p>
-          <Button onClick={generateDailyReport} fullWidth leftIcon={<Download size={18} />}>
-            Descargar PDF
+          <Button onClick={generateDailyReport} fullWidth leftIcon={<FileText size={18} />}>
+            Reporte Financiero
           </Button>
         </div>
 
         {/* Reporte 2 */}
-        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100 hover:border-green-200 transition-all group">
-          <div className="h-12 w-12 bg-green-100 text-green-600 rounded-lg flex items-center justify-center mb-4 group-hover:bg-green-600 group-hover:text-white transition-colors">
-            <Truck size={24} />
+        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100 hover:border-green-400 transition-all group cursor-pointer hover:shadow-lg transform hover:-translate-y-1">
+          <div className="flex justify-between items-start">
+            <div className="h-12 w-12 bg-green-100 text-green-600 rounded-lg flex items-center justify-center mb-4">
+                <TrendingUp size={24} />
+            </div>
+            <span className="text-xs font-semibold bg-green-50 text-green-700 px-2 py-1 rounded-full">Productividad</span>
           </div>
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Reporte de Flotilla</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Desempeño de Flotilla</h3>
           <p className="text-sm text-gray-500 mb-6">
-            Análisis de productividad por camión y conductor: kilómetros, paradas y rutas.
+            Ranking de conductores, densidad de entrega y % de ocupación.
           </p>
           <Button 
             onClick={generateFleetReport} 
             fullWidth 
             className="bg-green-600 hover:bg-green-700 text-white"
-            leftIcon={<Download size={18} />}
+            leftIcon={<Truck size={18} />}
           >
-            Descargar PDF
+            Reporte Productividad
           </Button>
         </div>
 
         {/* Reporte 3 */}
-        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100 hover:border-orange-200 transition-all group">
-          <div className="h-12 w-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4 group-hover:bg-orange-600 group-hover:text-white transition-colors">
-            <CheckCircle size={24} />
+        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100 hover:border-orange-400 transition-all group cursor-pointer hover:shadow-lg transform hover:-translate-y-1">
+          <div className="flex justify-between items-start">
+            <div className="h-12 w-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4">
+                <CheckCircle size={24} />
+            </div>
+            <span className="text-xs font-semibold bg-orange-50 text-orange-700 px-2 py-1 rounded-full">Calidad</span>
           </div>
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Auditoría de Entregas</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Auditoría de Tiempos</h3>
           <p className="text-sm text-gray-500 mb-6">
-            Comparativa de tiempos estimados vs reales y desviaciones. Requiere rutas completadas.
+            Detección de cuellos de botella y desviaciones críticas (&gt;15 min).
           </p>
           <Button 
             onClick={generateAuditReport} 
@@ -357,7 +515,7 @@ const ReportsPage: React.FC = () => {
             className="bg-orange-600 hover:bg-orange-700 text-white"
             leftIcon={<Download size={18} />}
           >
-            Descargar PDF
+            Auditar Calidad
           </Button>
         </div>
 
