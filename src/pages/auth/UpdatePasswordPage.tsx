@@ -4,122 +4,118 @@ import { useNavigate } from 'react-router-dom';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import { Lock } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const UpdatePasswordPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [isSessionValid, setIsSessionValid] = useState(false); // Validar si el link funcionó
   const navigate = useNavigate();
 
-  // Este useEffect maneja el evento de Supabase cuando el usuario
-  // acaba de iniciar sesión a través del enlace mágico.
   useEffect(() => {
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        // El usuario ha iniciado sesión con un token de recuperación
-        // No es necesario hacer nada extra, solo mostrar el formulario.
-        console.log('Sesión de recuperación de contraseña iniciada.');
+    // Escuchar cuando Supabase procesa el link mágico
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+        setIsSessionValid(true);
+        // Opcional: Limpiar la URL fea para que el usuario no se asuste
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
     });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setMessage('');
-
-    // Validación simple
+    
     if (!password) {
-      setError('La contraseña no puede estar vacía.');
+      toast.error('La contraseña no puede estar vacía.');
       return;
     }
     if (password !== confirmPassword) {
-      setError('Las contraseñas no coinciden.');
+      toast.error('Las contraseñas no coinciden.');
       return;
     }
 
     setIsLoading(true);
+    const loadingToast = toast.loading('Actualizando contraseña...');
 
-    // 1. Llama a la función de Supabase para actualizar al usuario
-    // Como el usuario llegó aquí desde un enlace de email, Supabase
-    // ya tiene la sesión de "recuperación" activa.
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: password,
-    });
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: password,
+      });
 
-    setIsLoading(false);
+      if (error) throw error;
 
-    if (updateError) {
-      setError(updateError.message);
-    } else {
-      setMessage('¡Contraseña actualizada con éxito! Redirigiendo al inicio de sesión...');
-      // 2. Cierra la sesión de recuperación
+      toast.success('¡Contraseña actualizada! Redirigiendo...', { id: loadingToast });
+      
+      // Cerrar sesión y mandar al login para que entre con la nueva pass
       await supabase.auth.signOut();
-      // 3. Envía al usuario al login
-      setTimeout(() => navigate('/login'), 3000);
+      setTimeout(() => navigate('/login'), 2000);
+
+    } catch (error: any) {
+      toast.error(`Error: ${error.message}`, { id: loadingToast });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-lg shadow-md">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-            Crea tu nueva contraseña
+          <h2 className="text-center text-3xl font-bold tracking-tight text-gray-900">
+            Recuperación de Cuenta
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Introduce una contraseña segura y que recuerdes.
+            {isSessionValid 
+              ? "Ingresa tu nueva contraseña a continuación." 
+              : "Verificando enlace de seguridad..."}
           </p>
         </div>
         
-        <form className="mt-8 space-y-6" onSubmit={handleUpdatePassword}>
-          <div className="rounded-md shadow-sm space-y-4">
-            <Input
-              label="Nueva Contraseña"
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              fullWidth
-            />
-            <Input
-              label="Confirmar Contraseña"
-              id="confirm-password"
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              fullWidth
-            />
-          </div>
-
-          {message && (
-            <div className="text-sm font-medium text-green-600">
-              {message}
+        {isSessionValid ? (
+          <form className="mt-8 space-y-6" onSubmit={handleUpdatePassword}>
+            <div className="space-y-4">
+              <Input
+                label="Nueva Contraseña"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                fullWidth
+                leftIcon={<Lock size={18} />}
+              />
+              <Input
+                label="Confirmar Contraseña"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                fullWidth
+                leftIcon={<Lock size={18} />}
+              />
             </div>
-          )}
-          {error && (
-            <div className="text-sm font-medium text-red-600">
-              {error}
-            </div>
-          )}
 
-          <div>
             <Button
               type="submit"
               fullWidth
               disabled={isLoading}
-              leftIcon={<Lock size={18} />}
             >
-              {isLoading ? 'Guardando...' : 'Guardar Nueva Contraseña'}
+              {isLoading ? 'Guardando...' : 'Establecer Nueva Contraseña'}
             </Button>
-          </div>
-        </form>
+          </form>
+        ) : (
+           <div className="flex justify-center py-10">
+             {/* Spinner simple mientras valida el token */}
+             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+           </div>
+        )}
       </div>
     </div>
   );
