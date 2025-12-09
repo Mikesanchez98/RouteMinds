@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom'; // <--- Importamos Link
 import { Mail, Lock, LogIn } from 'lucide-react';
 import Button from '../common/Button';
 import Input from '../common/Input';
@@ -21,7 +21,7 @@ const LoginForm: React.FC = () => {
   const { login, isLoading, error } = useAuthStore();
   const navigate = useNavigate();
   
-  // Manejar envío del formulario de Login
+  // Manejar envío del formulario
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -51,7 +51,7 @@ const LoginForm: React.FC = () => {
       await login(email, password);
       navigate('/dashboard');
     } catch (error) {
-      // El error es manejado por el store y se mostrará abajo
+      // El error es manejado por el store
       console.error(error);
     }
   };
@@ -84,7 +84,7 @@ const LoginForm: React.FC = () => {
         />
       </div>
       
-      {/* Mostrar errores generales del store (como credenciales inválidas) */}
+      {/* Mensaje de error general (del store) */}
       {error && (
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-md text-sm border border-red-200">
           {error}
@@ -104,8 +104,7 @@ const LoginForm: React.FC = () => {
           </label>
         </div>
         
-        {/* --- AQUÍ ESTÁ LA CORRECCIÓN CLAVE --- */}
-        {/* Enlace a la página dedicada de recuperación */}
+        {/* --- CORRECCIÓN: ENLACE A LA PÁGINA DE RECUPERACIÓN --- */}
         <div className="text-sm">
           <Link
             to="/forgot-password"
@@ -114,7 +113,7 @@ const LoginForm: React.FC = () => {
             ¿Olvidó su contraseña?
           </Link>
         </div>
-        {/* ------------------------------------- */}
+        {/* ------------------------------------------------------ */}
       </div>
       
       <Button
@@ -129,12 +128,13 @@ const LoginForm: React.FC = () => {
       
       <div className="text-center text-sm text-gray-600">
         ¿No tiene una cuenta?{' '}
-        <Link
-          to="/register"
+        <button
+          type="button"
+          onClick={() => navigate('/register')}
           className="font-medium text-blue-600 hover:text-blue-500"
         >
           Registrarse
-        </Link>
+        </button>
       </div>
     </form>
   );
